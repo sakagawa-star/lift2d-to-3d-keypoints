@@ -15,7 +15,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 2D-3D点対応によるカメラ内部・外部パラメータ推定
 - 歪み係数（k1, k2, p1, p2, optional k3）の推定
-- 主点のグリッドサーチ最適化
 - Ground Truthとの比較検証（レベル1: K既知、レベル2: K未知）
 - Calib_scene.toml / camera_params.csv 形式での結果出力
 
@@ -47,17 +46,17 @@ lift2d-to-3d-keypoints/
 │   ├── CHANGELOG.md             # リリース履歴
 │   └── issues/                  # 個別案件フォルダ
 ├── phase0/                      # メインスクリプト群
-│   ├── config_*.yaml            # カメラ別設定ファイル
-│   ├── estimate_jvc_params_v2.py      # JVCカメラ推定（基本版）
-│   ├── estimate_jvc_params_v3.py      # JVCカメラ推定（k3対応版）
-│   ├── estimate_camera_params.py      # 汎用カメラ推定
-│   ├── estimate_camera_gridsearch.py  # グリッドサーチ最適化
+│   ├── estimate_camera_params.py      # カメラパラメータ推定（メイン）
 │   ├── phase0_verification.py         # 検証スクリプト
 │   ├── convert_toml_to_csv.py         # TOML→CSV変換
-│   ├── kijunten_locations*.csv        # 3D基準点データ
-│   ├── points_2d*.csv                 # 2D画像座標データ
-│   ├── Calib_scene*.toml              # キャリブレーション結果
-│   └── *.blend / *.ply               # 3Dモデルファイル
+│   ├── blender/                        # Blenderスクリプト
+│   │   └── mk_points_3d.py           # 3D基準点CSV生成
+│   └── data/                          # データファイル（gitignore）
+│       ├── config_*.yaml              # カメラ別設定ファイル
+│       ├── kijunten_locations*.csv    # 3D基準点データ
+│       ├── points_2d*.csv             # 2D画像座標データ
+│       ├── Calib_scene*.toml          # キャリブレーション結果
+│       └── *.blend / *.ply           # 3Dモデルファイル
 └── tests/                       # テストコード
     └── results/                 # テスト結果保存先
 ```
@@ -69,17 +68,17 @@ lift2d-to-3d-keypoints/
 ```bash
 cd phase0
 
-# カメラパラメータ推定（基本版: 15点以上で歪み係数も推定）
-uv run python estimate_jvc_params_v2.py config_jvc.yaml
+# 通常（主点も推定）
+uv run python estimate_camera_params.py data/config.yaml
 
-# カメラパラメータ推定（汎用版: --fix-center, --k3 オプション対応）
-uv run python estimate_camera_params.py config_sony2.yaml --fix-center --k3
+# 主点固定（cx, cyを画像中心に固定）
+uv run python estimate_camera_params.py data/config.yaml --fix-center
 
-# グリッドサーチによる主点最適化
-uv run python estimate_camera_gridsearch.py config_sony2.yaml
+# 主点固定 + k3
+uv run python estimate_camera_params.py data/config.yaml --fix-center --k3
 
 # 推定結果の検証（Ground Truth比較、レベル1/2検証）
-uv run python phase0_verification.py config.yaml
+uv run python phase0_verification.py data/config.yaml
 
 # TOML→CSV変換
 uv run python convert_toml_to_csv.py
@@ -95,22 +94,49 @@ uv run python convert_toml_to_csv.py
 4. `cv2.solvePnP` で初期値算出 → `scipy.optimize.least_squares` (method='lm') で全パラメータ最適化
 5. 再投影誤差(RMSE)で評価、結果をTOML形式とCSV形式で出力
 
-### 設定ファイル（YAML）
+### 入力データフォーマット
 
-簡易パーサー（`load_yaml_simple`）で読み込み。`key: value` のフラット構造のみ対応。主なキー: `target_camera`, `points_3d`, `points_2d`, `image_width`, `image_height`
+**kijunten_locations.csv**（3D基準点座標、全カメラ共通）
+```csv
+ObjectName,X,Y,Z
+基準_01,-0.0199,-0.2968,-0.1913
+基準_02,...
+```
+
+**points_2d.csv**（2D画像座標、全カメラ分を縦持ち、行の順番自由）
+```csv
+ObjectName,camera_name,X,Y
+基準_01,cam01,780,913
+基準_02,cam01,1877,483
+基準_01,cam02,523,845
+...
+```
+
+**config.yaml**（簡易YAMLパーサーで読み込み、`key: value` のフラット構造のみ対応）
+```yaml
+target_camera: cam01
+camera_params: camera_params.csv
+points_3d: kijunten_locations.csv
+points_2d: points_2d.csv
+image_width: 960
+image_height: 540
+```
+
+- `camera_params` は検証スクリプト（`phase0_verification.py`）のみ使用
+- `image_width`, `image_height` のデフォルトは 960x540
 
 ### 出力形式
 
 - **Calib_scene.toml**: `matrix`(3x3), `distortions`, `rotation`(Rodrigues), `translation`
-- **camera_params.csv**: 17列（camera_name, width, height, fx, fy, cx, cy, k1, k2, p1, p2, r1-r3, t1-t3）
+- **camera_params.csv**: camera_name, width, height, fx, fy, cx, cy, k1, k2, p1, p2, [k3,] r1, r2, r3, t1, t2, t3
 
-### 推定モードの違い
+### 推定モード（estimate_camera_params.py）
 
-| スクリプト | 歪み係数 | 主点 | 最小点数 |
-|---|---|---|---|
-| `estimate_jvc_params_v2.py` | k1,k2,p1,p2（15点以上） | 推定 | 基準点数で自動判定 |
-| `estimate_camera_params.py` | k1,k2,p1,p2 + optional k3 | 推定 or 固定(--fix-center) | モードに応じて変動 |
-| `estimate_jvc_params_v3.py` | k1,k2,p1,p2 + optional k3 | 推定 | モードに応じて変動 |
+| オプション | 歪み係数 | 主点 |
+|---|---|---|
+| （なし） | k1, k2, p1, p2 | 推定 |
+| `--fix-center` | k1, k2, p1, p2 | 画像中心に固定 |
+| `--fix-center --k3` | k1, k2, p1, p2, k3 | 画像中心に固定 |
 
 ## コーディング規約
 
