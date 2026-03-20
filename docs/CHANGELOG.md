@@ -2,6 +2,14 @@
 
 ## リリース履歴
 
+### 2026-03-21
+
+- **feat-004**: gsplatバッチレンダリングパイプライン（`phase4/render.py`）
+  - PLYファイルとカメラポーズJSONを受け取り、gsplat（CUDA）でフレームごとにPNG画像を出力
+  - Blender→OpenCV座標系変換、PLY属性の活性化関数変換（sigmoid, exp, normalize）
+  - `--rotate-z90` オプション: Blenderアドオン旧バージョンのバグによるZ軸90度ずれを補正
+  - `--background` オプション: 背景色指定
+
 ### 2026-03-20
 
 - **feat-001**: 内部パラメータ既知での外部パラメータ推定ツール `estimate_extrinsic.py` を新規作成（Stage 1）

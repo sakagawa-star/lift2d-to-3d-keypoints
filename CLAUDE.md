@@ -58,6 +58,10 @@ lift2d-to-3d-keypoints/
 │       ├── points_2d*.csv             # 2D画像座標データ
 │       ├── Calib_scene*.toml          # キャリブレーション結果
 │       └── *.blend / *.ply           # 3Dモデルファイル
+├── phase4/                      # gsplatバッチレンダリング
+│   ├── pyproject.toml                 # uv パッケージ管理
+│   ├── render.py                      # バッチレンダリングスクリプト
+│   └── data/                          # データファイル（gitignore）
 └── tests/                       # テストコード
     └── results/                 # テスト結果保存先
 ```
