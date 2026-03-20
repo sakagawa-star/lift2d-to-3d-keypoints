@@ -46,8 +46,8 @@ lift2d-to-3d-keypoints/
 │   ├── CHANGELOG.md             # リリース履歴
 │   └── issues/                  # 個別案件フォルダ
 ├── phase0/                      # メインスクリプト群
-│   ├── estimate_camera_params.py      # カメラパラメータ推定（メイン）
-│   ├── estimate_extrinsic.py          # 外部パラメータ推定（K既知）
+│   ├── estimate_camera_params.py      # カメラパラメータ推定（メイン、K既知モード対応）
+│   ├── common.py                      # 共通関数モジュール
 │   ├── phase0_verification.py         # 検証スクリプト
 │   ├── convert_toml_to_csv.py         # TOML→CSV変換
 │   ├── blender/                        # Blenderスクリプト
@@ -87,8 +87,8 @@ uv run python estimate_camera_params.py data/config.yaml --wide --fix-center
 # 推定結果の検証（Ground Truth比較、レベル1/2検証）
 uv run python phase0_verification.py data/config.yaml
 
-# 外部パラメータ推定（K既知）
-uv run python estimate_extrinsic.py data/config_lab2.yaml data/ufukui/05520125_intrinsics.toml
+# 外部パラメータ推定（K既知モード）
+uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/05520125_intrinsics.toml
 
 # TOML→CSV変換
 uv run python convert_toml_to_csv.py
@@ -149,6 +149,7 @@ image_height: 540
 | `--fix-center --k3` | k1, k2, p1, p2, k3 | 画像中心に固定 |
 | `--wide` | k1, k2, p1, p2, k3, k4, k5, k6 | 推定 |
 | `--wide --fix-center` | k1, k2, p1, p2, k3, k4, k5, k6 | 画像中心に固定 |
+| `--intrinsic-toml` | TOML読み込み（K既知、R,tのみ推定） | TOML読み込み |
 
 ## コーディング規約
 

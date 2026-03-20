@@ -1,0 +1,29 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 20 items
+
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicRansac::test_clean_data PASSED [  5%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicRansac::test_with_outlier PASSED [ 10%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicNoRansac::test_4_points PASSED [ 15%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicError::test_3_points_returns_none PASSED [ 20%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicError::test_0_points_returns_none PASSED [ 25%]
+tests/test_estimate_camera_params_extrinsic.py::TestLoadToml::test_normal_toml PASSED [ 30%]
+tests/test_estimate_camera_params_extrinsic.py::TestLoadToml::test_camera_not_found PASSED [ 35%]
+tests/test_estimate_camera_params_extrinsic.py::TestOptionWarning::test_intrinsic_with_k3_warning PASSED [ 40%]
+tests/test_estimate_camera_params_extrinsic.py::TestRegression::test_4coeff_still_works PASSED [ 45%]
+tests/test_estimate_camera_params_extrinsic.py::TestCommonModule::test_import PASSED [ 50%]
+tests/test_estimate_camera_params_extrinsic.py::TestCommonModule::test_match_points PASSED [ 55%]
+tests/test_estimate_camera_params_extrinsic.py::TestTomlOutput::test_extrinsic_toml_output PASSED [ 60%]
+tests/test_estimate_camera_params_wide.py::TestWideEstimation::test_8coeff_estimation PASSED [ 65%]
+tests/test_estimate_camera_params_wide.py::TestWideFixCenter::test_8coeff_fix_center PASSED [ 70%]
+tests/test_estimate_camera_params_wide.py::TestWideFallback::test_fallback_not_enough_points PASSED [ 75%]
+tests/test_estimate_camera_params_wide.py::TestWideK3Exclusive::test_wide_overrides_k3 PASSED [ 80%]
+tests/test_estimate_camera_params_wide.py::TestRegression::test_4coeff_projection PASSED [ 85%]
+tests/test_estimate_camera_params_wide.py::TestRegression::test_no_dist_projection PASSED [ 90%]
+tests/test_estimate_camera_params_wide.py::TestOutputFormat::test_toml_8coeff PASSED [ 95%]
+tests/test_estimate_camera_params_wide.py::TestOutputFormat::test_csv_8coeff_header PASSED [100%]
+
+============================== 20 passed in 0.34s ==============================

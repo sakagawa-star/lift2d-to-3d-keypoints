@@ -1,10 +1,11 @@
 """
-カメラ パラメータ推定スクリプト（主点固定・広角レンズ対応版）
+カメラ パラメータ推定スクリプト（主点固定・広角レンズ・K既知対応版）
 
 オプション:
-    --k3          : k3（6次放射歪み）も推定する
-    --wide        : 広角レンズ用8係数モデルを使用
-    --fix-center  : 主点(cx, cy)を画像中心に固定する
+    --k3              : k3（6次放射歪み）も推定する
+    --wide            : 広角レンズ用8係数モデルを使用
+    --fix-center      : 主点(cx, cy)を画像中心に固定する
+    --intrinsic-toml  : 内部パラメータTOMLファイル（K既知モード）
 
 使い方:
     python estimate_camera_params.py config.yaml                    # 標準（4係数）
@@ -12,6 +13,7 @@
     python estimate_camera_params.py config.yaml --fix-center --k3  # 主点固定 + k3
     python estimate_camera_params.py config.yaml --wide             # 広角（8係数）
     python estimate_camera_params.py config.yaml --wide --fix-center # 広角 + 主点固定
+    python estimate_camera_params.py config.yaml --intrinsic-toml intrinsic.toml  # K既知
 
 レンズと推奨オプション:
     標準レンズ（~60°）   : （オプションなし）
@@ -20,12 +22,15 @@
 """
 
 import argparse
-import csv
+import sys
 from pathlib import Path
 
 import numpy as np
 import cv2
+import tomli
 from scipy.optimize import least_squares
+
+from common import load_yaml_simple, load_points_3d, load_points_2d, match_points
 
 
 # 歪み係数を推定する最小点数
@@ -36,62 +41,6 @@ MIN_POINTS_DIST4_FIXCENTER = 12  # 4係数+主点固定: 12変数
 MIN_POINTS_DIST5_FIXCENTER = 14  # 5係数+主点固定: 13変数
 MIN_POINTS_DIST8 = 20            # 8係数: 18変数
 MIN_POINTS_DIST8_FIXCENTER = 18  # 8係数+主点固定: 16変数
-
-
-def load_yaml_simple(yaml_path: str) -> dict:
-    """簡易YAMLパーサー"""
-    config = {}
-    with open(yaml_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if ':' in line:
-                key, value = line.split(':', 1)
-                config[key.strip()] = value.strip()
-    return config
-
-
-def load_points_3d(csv_path: str) -> dict:
-    """3D座標を読み込む"""
-    points = {}
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            name = row['ObjectName']
-            points[name] = [float(row['X']), float(row['Y']), float(row['Z'])]
-    return points
-
-
-def load_points_2d(csv_path: str, camera_name: str) -> dict:
-    """2D座標を読み込む"""
-    points = {}
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row['camera_name'] == camera_name:
-                name = row['ObjectName']
-                points[name] = [float(row['X']), float(row['Y'])]
-    return points
-
-
-def match_points(points_3d: dict, points_2d: dict):
-    """3Dと2Dの点をマッチング"""
-    matched_3d = []
-    matched_2d = []
-    names = []
-    
-    for name in points_3d:
-        if name in points_2d:
-            matched_3d.append(points_3d[name])
-            matched_2d.append(points_2d[name])
-            names.append(name)
-    
-    return (
-        np.array(matched_3d, dtype=np.float64),
-        np.array(matched_2d, dtype=np.float64),
-        names
-    )
 
 
 # ========================================
@@ -228,9 +177,270 @@ def make_residual(project_func):
     return residual
 
 
-def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: bool):
+# ========================================
+# K既知モード用関数
+# ========================================
+
+def load_intrinsic_toml(toml_path: str, camera_name: str) -> dict:
+    """TOMLファイルから内部パラメータを読み込む"""
+    with open(toml_path, 'rb') as f:
+        data = tomli.load(f)
+
+    if camera_name not in data:
+        print(f"エラー: カメラ '{camera_name}' がTOMLファイルに見つかりません: {toml_path}")
+        print(f"  利用可能なセクション: {[k for k in data.keys() if k != 'metadata']}")
+        return None
+
+    cam_data = data[camera_name]
+
+    K = np.array(cam_data['matrix'], dtype=np.float64)
+    dist = np.array(cam_data['distortions'], dtype=np.float64)
+    size = cam_data['size']
+
+    return {
+        'K': K,
+        'dist': dist,
+        'image_width': int(size[0]),
+        'image_height': int(size[1]),
+    }
+
+
+def estimate_extrinsic(points_3d: np.ndarray, points_2d: np.ndarray,
+                       K: np.ndarray, dist: np.ndarray,
+                       point_names: list[str]) -> dict:
+    """外部パラメータ推定のメインロジック（K既知モード）"""
+    num_points = len(points_3d)
+
+    if num_points <= 3:
+        print(f"エラー: 基準点が{num_points}点しかありません。最低4点必要です。")
+        return None
+
+    if num_points >= 6:
+        # Step 1: RANSAC で外れ値検出
+        success, rvec, tvec, inliers_idx = cv2.solvePnPRansac(
+            points_3d, points_2d, K, dist,
+            iterationsCount=1000,
+            reprojectionError=8.0,
+            flags=cv2.SOLVEPNP_ITERATIVE
+        )
+
+        if not success or inliers_idx is None:
+            print("エラー: solvePnPRansac が失敗しました")
+            return None
+
+        # inlier/outlier を分類
+        inlier_set = set(inliers_idx.flatten().tolist())
+        inlier_names = [point_names[i] for i in range(num_points) if i in inlier_set]
+        outlier_names = [point_names[i] for i in range(num_points) if i not in inlier_set]
+
+        inlier_3d = points_3d[list(inlier_set)]
+        inlier_2d = points_2d[list(inlier_set)]
+
+        if len(inlier_3d) < 4:
+            print(f"エラー: inlier数が4点未満です（{len(inlier_3d)}点）。外れ値が多すぎます。")
+            return None
+
+        # Step 2: inlier点で ITERATIVE 精密化
+        success, rvec, tvec = cv2.solvePnP(
+            inlier_3d, inlier_2d, K, dist,
+            rvec=rvec, tvec=tvec,
+            useExtrinsicGuess=True,
+            flags=cv2.SOLVEPNP_ITERATIVE
+        )
+
+        if not success:
+            print("エラー: solvePnP(ITERATIVE) 精密化が失敗しました")
+            return None
+
+        used_ransac = True
+
+    else:  # 4〜5点
+        # SOLVEPNP_ITERATIVE は最低6点必要なため、SOLVEPNP_SQPNP を使用（4点以上対応）
+        success, rvec, tvec = cv2.solvePnP(
+            points_3d, points_2d, K, dist,
+            flags=cv2.SOLVEPNP_SQPNP
+        )
+
+        if not success:
+            print("エラー: solvePnP が失敗しました")
+            return None
+
+        inlier_names = list(point_names)
+        outlier_names = []
+        used_ransac = False
+
+    return {
+        'rvec': rvec.flatten(),
+        'tvec': tvec.flatten(),
+        'inliers': inlier_names,
+        'outliers': outlier_names,
+        'used_ransac': used_ransac,
+    }
+
+
+def compute_reprojection_errors(points_3d: np.ndarray, points_2d: np.ndarray,
+                                K: np.ndarray, dist: np.ndarray,
+                                rvec: np.ndarray, tvec: np.ndarray) -> tuple[float, np.ndarray]:
+    """再投影誤差を計算（全点対象）"""
+    projected, _ = cv2.projectPoints(
+        points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
+    )
+    projected = projected.reshape(-1, 2)
+
+    per_point_errors = np.linalg.norm(projected - points_2d, axis=1)
+    rmse = np.sqrt(np.mean(per_point_errors ** 2))
+
+    return rmse, per_point_errors
+
+
+def _print_toml_output(camera_name: str, image_width: int, image_height: int,
+                       K: np.ndarray, dist: np.ndarray,
+                       rvec: np.ndarray, tvec: np.ndarray):
+    """K既知モード用のTOML出力"""
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+
+    dist_list = dist.tolist()
+    dist_str = f"[{', '.join(str(v) for v in dist_list)}]"
+
+    print(f"""
+[{camera_name}]
+name = "{camera_name}"
+size = [{image_width}.0, {image_height}.0]
+matrix = [[{fx}, 0.0, {cx}], [0.0, {fy}, {cy}], [0.0, 0.0, 1.0]]
+distortions = {dist_str}
+rotation = [{rvec[0]}, {rvec[1]}, {rvec[2]}]
+translation = [{tvec[0]}, {tvec[1]}, {tvec[2]}]
+fisheye = false
+""")
+
+
+def _run_extrinsic_estimation(config_path: str, toml_path: str):
+    """K既知モードの処理"""
+
+    config = load_yaml_simple(config_path)
+    config_dir = Path(config_path).parent
+
+    target_camera = config['target_camera']
+    points_3d_path = config_dir / config['points_3d']
+    points_2d_path = config_dir / config['points_2d']
+
+    # 内部パラメータ読み込み
+    intrinsic = load_intrinsic_toml(toml_path, target_camera)
+    if intrinsic is None:
+        return 1
+    K = intrinsic['K']
+    dist = intrinsic['dist']
+    img_width = intrinsic['image_width']
+    img_height = intrinsic['image_height']
+
+    print("=" * 60)
+    print(f"外部パラメータ推定 (K既知): {target_camera}")
+    print("=" * 60)
+    print(f"設定ファイル: {config_path}")
+    print(f"内部パラメータ: {toml_path}")
+    print(f"3D座標: {points_3d_path}")
+    print(f"2D座標: {points_2d_path}")
+    print(f"画像サイズ: {img_width} x {img_height}")
+
+    print(f"\n[内部パラメータ (TOML読み込み)]")
+    print(f"fx: {K[0, 0]:.2f}")
+    print(f"fy: {K[1, 1]:.2f}")
+    print(f"cx: {K[0, 2]:.2f}")
+    print(f"cy: {K[1, 2]:.2f}")
+    print(f"歪み係数: {dist.tolist()}")
+
+    # データ読み込み
+    points_3d_dict = load_points_3d(points_3d_path)
+    points_2d_dict = load_points_2d(points_2d_path, target_camera)
+
+    # マッチング
+    points_3d, points_2d, point_names = match_points(points_3d_dict, points_2d_dict)
+    num_points = len(point_names)
+
+    print(f"\n基準点数: {num_points}点")
+    for name in point_names:
+        print(f"  - {name}")
+
+    # 推定
+    print("\n" + "=" * 60)
+    print("推定結果")
+    print("=" * 60)
+
+    result = estimate_extrinsic(points_3d, points_2d, K, dist, point_names)
+    if result is None:
+        return 1
+    rvec = result['rvec']
+    tvec = result['tvec']
+
+    # 推定手法
+    if result['used_ransac']:
+        print(f"\n[推定手法]")
+        print("solvePnPRansac → solvePnP(ITERATIVE) 精密化")
+
+        print(f"\n[RANSAC結果]")
+        print(f"inlier: {len(result['inliers'])}点 / 全{num_points}点")
+        print(f"  inlier:  {', '.join(result['inliers'])}")
+        if result['outliers']:
+            print(f"  outlier: {', '.join(result['outliers'])}")
+        else:
+            print("  outlier: なし")
+    else:
+        print(f"\n[推定手法]")
+        print("solvePnP(SQPNP)（基準点が4〜5点のためRANSACなし）")
+
+    # 外部パラメータ
+    print(f"\n[外部パラメータ]")
+    print(f"rvec: [{rvec[0]:.6f}, {rvec[1]:.6f}, {rvec[2]:.6f}]")
+    print(f"tvec: [{tvec[0]:.6f}, {tvec[1]:.6f}, {tvec[2]:.6f}]")
+
+    # 再投影誤差
+    rmse, per_point_errors = compute_reprojection_errors(
+        points_3d, points_2d, K, dist, rvec, tvec
+    )
+
+    print(f"\n[再投影誤差]")
+    print(f"RMSE: {rmse:.2f} pixels")
+
+    if rmse < 5:
+        print("評価: ✓ 優秀")
+    elif rmse < 10:
+        print("評価: ✓ 良好")
+    elif rmse < 20:
+        print("評価: △ 許容範囲")
+    else:
+        print("評価: ✗ 要確認（点のずれ or 推定失敗）")
+
+    outlier_set = set(result['outliers'])
+
+    print("\n[各点の再投影誤差]")
+    for i, name in enumerate(point_names):
+        err = per_point_errors[i]
+        if name in outlier_set:
+            status = "✗ [outlier]"
+        elif err < 10:
+            status = "✓"
+        else:
+            status = "✗"
+        print(f"  {name}: {err:.2f} px {status}")
+
+    # TOML出力
+    print("\n" + "=" * 60)
+    print("Calib_scene.toml 形式")
+    print("=" * 60)
+
+    _print_toml_output(target_camera, img_width, img_height, K, dist, rvec, tvec)
+
+    return 0
+
+
+def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: bool, intrinsic_toml: str = None):
     """メイン処理"""
-    
+
+    # K既知モード
+    if intrinsic_toml:
+        return _run_extrinsic_estimation(config_path, intrinsic_toml)
+
     config = load_yaml_simple(config_path)
     config_dir = Path(config_path).parent
     
@@ -612,7 +822,7 @@ fisheye = false
 
 def main():
     parser = argparse.ArgumentParser(
-        description='カメラ パラメータ推定（主点固定・広角レンズ対応版）',
+        description='カメラ パラメータ推定（主点固定・広角レンズ・K既知対応版）',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用例:
@@ -621,6 +831,7 @@ def main():
     python estimate_camera_params.py config.yaml --fix-center --k3  # 主点固定 + k3
     python estimate_camera_params.py config.yaml --wide             # 広角（8係数）
     python estimate_camera_params.py config.yaml --wide --fix-center # 広角 + 主点固定
+    python estimate_camera_params.py config.yaml --intrinsic-toml intrinsic.toml  # K既知
 
 レンズと推奨オプション:
     標準レンズ（~60°）   : （オプションなし）
@@ -635,6 +846,8 @@ def main():
                         help='広角レンズ用8係数モデルを使用')
     parser.add_argument('--fix-center', action='store_true',
                         help='主点(cx, cy)を画像中心に固定する')
+    parser.add_argument('--intrinsic-toml', default=None,
+                        help='内部パラメータTOMLファイル（指定時はK既知モード）')
 
     args = parser.parse_args()
 
@@ -642,10 +855,27 @@ def main():
         print(f"エラー: 設定ファイルが見つかりません: {args.config}")
         return 1
 
+    # --intrinsic-toml 指定時の警告と存在確認
+    if args.intrinsic_toml:
+        ignored = []
+        if args.k3:
+            ignored.append('--k3')
+        if args.wide:
+            ignored.append('--wide')
+        if args.fix_center:
+            ignored.append('--fix-center')
+        if ignored:
+            print(f"警告: --intrinsic-toml 指定時は {', '.join(ignored)} は無視されます")
+
+        if not Path(args.intrinsic_toml).exists():
+            print(f"エラー: TOMLファイルが見つかりません: {args.intrinsic_toml}")
+            return 1
+
     # --wide が指定されたら --k3 は無視
     use_k3 = args.k3 and not args.wide
 
-    result = run_estimation(args.config, use_k3, args.wide, args.fix_center)
+    result = run_estimation(args.config, use_k3, args.wide, args.fix_center,
+                            intrinsic_toml=args.intrinsic_toml)
     if result:
         return result
     return 0

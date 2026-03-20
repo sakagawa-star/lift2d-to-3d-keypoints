@@ -4,6 +4,7 @@
 
 | ID | タイプ | タイトル | ステータス |
 |----|--------|---------|-----------|
-| feat-001 | 機能追加 | 内部パラメータ既知での外部パラメータ推定（Stage 1） | Closed（凍結） |
+| feat-001 | 機能追加 | 内部パラメータ既知での外部パラメータ推定（Stage 1） | Closed |
 | feat-002 | 機能追加 | estimate_camera_params.py 広角レンズ対応 | Closed |
+| feat-003 | 機能追加 | estimate_extrinsic.py を estimate_camera_params.py に統合（Stage 2） | Closed |
 
