@@ -4,6 +4,14 @@
 
 ### 2026-03-21
 
+- **feat-006**: render.py ドライランモード
+  - `--dry-run` オプションでPNG保存をスキップし、レンダリング性能を計測可能に
+  - 通常モード・dry-run両方で処理時間を表示
+
+- **feat-005**: render.py フレーム範囲指定オプション
+  - `--start-frame` / `--end-frame` でレンダリングするフレーム番号の範囲を指定可能に
+  - 未指定時は全フレーム（従来動作）
+
 - **feat-004**: gsplatバッチレンダリングパイプライン（`phase4/render.py`）
   - PLYファイルとカメラポーズJSONを受け取り、gsplat（CUDA）でフレームごとにPNG画像を出力
   - Blender→OpenCV座標系変換、PLY属性の活性化関数変換（sigmoid, exp, normalize）
