@@ -47,6 +47,7 @@ lift2d-to-3d-keypoints/
 │   └── issues/                  # 個別案件フォルダ
 ├── phase0/                      # メインスクリプト群
 │   ├── estimate_camera_params.py      # カメラパラメータ推定（メイン）
+│   ├── estimate_extrinsic.py          # 外部パラメータ推定（K既知）
 │   ├── phase0_verification.py         # 検証スクリプト
 │   ├── convert_toml_to_csv.py         # TOML→CSV変換
 │   ├── blender/                        # Blenderスクリプト
@@ -79,6 +80,9 @@ uv run python estimate_camera_params.py data/config.yaml --fix-center --k3
 
 # 推定結果の検証（Ground Truth比較、レベル1/2検証）
 uv run python phase0_verification.py data/config.yaml
+
+# 外部パラメータ推定（K既知）
+uv run python estimate_extrinsic.py data/config_lab2.yaml data/ufukui/05520125_intrinsics.toml
 
 # TOML→CSV変換
 uv run python convert_toml_to_csv.py

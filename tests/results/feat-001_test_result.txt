@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 12 items
+
+tests/test_estimate_extrinsic.py::TestLoadIntrinsicToml::test_normal_toml PASSED [  8%]
+tests/test_estimate_extrinsic.py::TestLoadIntrinsicToml::test_multi_camera_toml PASSED [ 16%]
+tests/test_estimate_extrinsic.py::TestLoadIntrinsicToml::test_camera_not_found PASSED [ 25%]
+tests/test_estimate_extrinsic.py::TestLoadIntrinsicToml::test_dist5_toml PASSED [ 33%]
+tests/test_estimate_extrinsic.py::TestEstimateRansac::test_clean_data PASSED [ 41%]
+tests/test_estimate_extrinsic.py::TestEstimateRansac::test_with_outlier PASSED [ 50%]
+tests/test_estimate_extrinsic.py::TestEstimateNoRansac::test_4_points PASSED [ 58%]
+tests/test_estimate_extrinsic.py::TestEstimateNoRansac::test_5_points PASSED [ 66%]
+tests/test_estimate_extrinsic.py::TestEstimateError::test_3_points_error PASSED [ 75%]
+tests/test_estimate_extrinsic.py::TestEstimateError::test_0_points_error PASSED [ 83%]
+tests/test_estimate_extrinsic.py::TestReprojectionErrors::test_perfect_reprojection PASSED [ 91%]
+tests/test_estimate_extrinsic.py::TestTomlOutput::test_toml_parseable PASSED [100%]
+
+============================== 12 passed in 0.09s ==============================

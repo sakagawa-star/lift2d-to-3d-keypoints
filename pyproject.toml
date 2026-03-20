@@ -7,4 +7,10 @@ dependencies = [
     "numpy>=2.2.6",
     "opencv-python>=4.13.0.92",
     "scipy>=1.15.3",
+    "tomli>=2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
 ]
