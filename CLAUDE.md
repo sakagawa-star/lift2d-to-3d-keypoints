@@ -78,6 +78,12 @@ uv run python estimate_camera_params.py data/config.yaml --fix-center
 # 主点固定 + k3
 uv run python estimate_camera_params.py data/config.yaml --fix-center --k3
 
+# 広角レンズ（8係数歪みモデル）
+uv run python estimate_camera_params.py data/config.yaml --wide
+
+# 広角 + 主点固定
+uv run python estimate_camera_params.py data/config.yaml --wide --fix-center
+
 # 推定結果の検証（Ground Truth比較、レベル1/2検証）
 uv run python phase0_verification.py data/config.yaml
 
@@ -141,6 +147,8 @@ image_height: 540
 | （なし） | k1, k2, p1, p2 | 推定 |
 | `--fix-center` | k1, k2, p1, p2 | 画像中心に固定 |
 | `--fix-center --k3` | k1, k2, p1, p2, k3 | 画像中心に固定 |
+| `--wide` | k1, k2, p1, p2, k3, k4, k5, k6 | 推定 |
+| `--wide --fix-center` | k1, k2, p1, p2, k3, k4, k5, k6 | 画像中心に固定 |
 
 ## コーディング規約
 

@@ -9,3 +9,7 @@
   - solvePnPRansac + solvePnP(ITERATIVE) の二段構えで外れ値検出・精密化
   - 依存関係に `tomli` を追加
 
+- **feat-002**: `estimate_camera_params.py` に広角レンズ用8係数歪みモデルを追加
+  - `--wide` オプションで8係数（k1, k2, p1, p2, k3, k4, k5, k6）の歪みモデルを使用可能に
+  - TOML/CSV出力の8係数対応、solvePnP初期値推定のエラーハンドリング追加
+
