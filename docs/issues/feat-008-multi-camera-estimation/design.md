@@ -18,56 +18,49 @@ target_cameras = list(dict.fromkeys(
 ))
 ```
 
-### 2. `--intrinsic-toml` のディレクトリ対応
+### 2. `load_intrinsic_toml` の修正
 
-`load_intrinsic_toml` を拡張し、ディレクトリが渡された場合は `*_intrinsics.toml` を全て読み込む。
+既存の実装にディレクトリ探索ロジック（前イテレーションで追加）が残っているため、元の実装に戻す。
+セクション名でカメラを検索する既存ロジックだけで、全カメラの内部パラメータをまとめた1つのTOMLファイルに対応できる。
+
+また、`main()` の argparse help テキストとエラーメッセージからも「ディレクトリ」の文言を削除する。
 
 ```python
 def load_intrinsic_toml(toml_path: str, camera_name: str) -> dict:
-    """TOMLファイルまたはディレクトリから内部パラメータを読み込む"""
-    path = Path(toml_path)
+    """TOMLファイルから内部パラメータを読み込む"""
+    with open(toml_path, 'rb') as f:
+        data = tomli.load(f)
 
-    if path.is_dir():
-        # ディレクトリ内の *_intrinsics.toml を全て探索
-        toml_files = sorted(path.glob('*_intrinsics.toml'))
-        if not toml_files:
-            print(f"エラー: ディレクトリ内に *_intrinsics.toml が見つかりません: {toml_path}")
-            return None
-        for toml_file in toml_files:
-            with open(toml_file, 'rb') as f:
-                data = tomli.load(f)
-            if camera_name in data:
-                cam_data = data[camera_name]
-                K = np.array(cam_data['matrix'], dtype=np.float64)
-                dist = np.array(cam_data['distortions'], dtype=np.float64)
-                size = cam_data['size']
-                return {
-                    'K': K, 'dist': dist,
-                    'image_width': int(size[0]),
-                    'image_height': int(size[1]),
-                }
-        # 見つからなかった場合
-        print(f"エラー: カメラ '{camera_name}' がディレクトリ内のTOMLに見つかりません: {toml_path}")
+    if camera_name not in data:
+        print(f"エラー: カメラ '{camera_name}' がTOMLファイルに見つかりません: {toml_path}")
+        print(f"  利用可能なセクション: {[k for k in data.keys() if k != 'metadata']}")
         return None
-    else:
-        # 既存のファイル指定ロジック（変更なし）
-        with open(toml_path, 'rb') as f:
-            data = tomli.load(f)
 
-        if camera_name not in data:
-            print(f"エラー: カメラ '{camera_name}' がTOMLファイルに見つかりません: {toml_path}")
-            print(f"  利用可能なセクション: {[k for k in data.keys() if k != 'metadata']}")
-            return None
+    cam_data = data[camera_name]
 
-        cam_data = data[camera_name]
-        K = np.array(cam_data['matrix'], dtype=np.float64)
-        dist = np.array(cam_data['distortions'], dtype=np.float64)
-        size = cam_data['size']
-        return {
-            'K': K, 'dist': dist,
-            'image_width': int(size[0]),
-            'image_height': int(size[1]),
-        }
+    K = np.array(cam_data['matrix'], dtype=np.float64)
+    dist = np.array(cam_data['distortions'], dtype=np.float64)
+    size = cam_data['size']
+
+    return {
+        'K': K,
+        'dist': dist,
+        'image_width': int(size[0]),
+        'image_height': int(size[1]),
+    }
+```
+
+argparse help テキスト:
+```python
+parser.add_argument('--intrinsic-toml', default=None,
+                    help='内部パラメータTOMLファイル（指定時はK既知モード）')
+```
+
+存在確認のエラーメッセージ:
+```python
+if not Path(args.intrinsic_toml).exists():
+    print(f"エラー: TOMLファイルが見つかりません: {args.intrinsic_toml}")
+    return 1
 ```
 
 ### 3. `--output` オプション追加
@@ -82,23 +75,22 @@ parser.add_argument('--output', default=None,
 ### 4. `main()` の変更
 
 `--output` を `run_estimation` に渡す。通常モードで複数カメラ指定時のエラー処理を追加。
-既存の `--intrinsic-toml` 存在確認メッセージをディレクトリ対応に修正する。
 
 ```python
 def main():
     # ... argparse 部分は既存 + --output 追加 ...
-
-    # --intrinsic-toml の存在確認（既存コードの修正）
-    # 修正前: "エラー: TOMLファイルが見つかりません"
-    # 修正後: ファイルとディレクトリの両方に対応したメッセージ
-    if args.intrinsic_toml:
-        if not Path(args.intrinsic_toml).exists():
-            print(f"エラー: TOMLファイルまたはディレクトリが見つかりません: {args.intrinsic_toml}")
-            return 1
+    # ... --intrinsic-toml の存在確認は既存のまま（変更なし） ...
 
     # --output が --intrinsic-toml なしで指定された場合の警告
     if args.output and not args.intrinsic_toml:
         print("警告: --output は --intrinsic-toml と併用時のみ有効です。無視します。")
+
+    # --output の出力先ディレクトリの存在確認
+    if args.output and args.intrinsic_toml:
+        output_dir = Path(args.output).parent
+        if not output_dir.exists():
+            print(f"エラー: 出力先ディレクトリが存在しません: {output_dir}")
+            return 1
 
     # 通常モードで複数カメラ指定のエラーチェック
     # 通常モード（K未知）では target_camera のカンマ分割は行わない。
@@ -346,7 +338,7 @@ def _write_toml_output(output_path: str, results: dict):
 - `_run_extrinsic_estimation` のシグネチャに `output_path` を追加
 - `run_estimation` のシグネチャに `output_path` を追加
 - `main()` に `--output` 引数の処理と通常モードの複数カメラエラーチェックを追加
-- `load_intrinsic_toml` にディレクトリ対応を追加する
+- `load_intrinsic_toml` はディレクトリ探索ロジックを削除し、元の実装に戻す
 - 既存の `_print_toml_output` を `_format_toml_section` + `_print_toml_output` にリファクタする
 - 1台指定時の動作は変わらない（ループが1回だけ回る）
 - 通常モード（K未知）は一切変更しない

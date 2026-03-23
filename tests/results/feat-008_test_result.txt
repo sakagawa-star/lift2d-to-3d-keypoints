@@ -1,0 +1,209 @@
+feat-008: 複数カメラ一括推定 テスト結果（再実行）
+実行日時: 2026-03-23
+================================================================
+
+================================================================
+テスト1: 既存テストスイート
+コマンド: uv run pytest tests/ -v
+================================================================
+結果: PASS (20/20 テスト合格)
+
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicRansac::test_clean_data PASSED [  5%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicRansac::test_with_outlier PASSED [ 10%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicNoRansac::test_4_points PASSED [ 15%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicError::test_3_points_returns_none PASSED [ 20%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicError::test_0_points_returns_none PASSED [ 25%]
+tests/test_estimate_camera_params_extrinsic.py::TestLoadToml::test_normal_toml PASSED [ 30%]
+tests/test_estimate_camera_params_extrinsic.py::TestLoadToml::test_camera_not_found PASSED [ 35%]
+tests/test_estimate_camera_params_extrinsic.py::TestOptionWarning::test_intrinsic_with_k3_warning PASSED [ 40%]
+tests/test_estimate_camera_params_extrinsic.py::TestRegression::test_4coeff_still_works PASSED [ 45%]
+tests/test_estimate_camera_params_extrinsic.py::TestCommonModule::test_import PASSED [ 50%]
+tests/test_estimate_camera_params_extrinsic.py::TestCommonModule::test_match_points PASSED [ 55%]
+tests/test_estimate_camera_params_extrinsic.py::TestTomlOutput::test_extrinsic_toml_output PASSED [ 60%]
+tests/test_estimate_camera_params_wide.py::TestWideEstimation::test_8coeff_estimation PASSED [ 65%]
+tests/test_estimate_camera_params_wide.py::TestWideFixCenter::test_8coeff_fix_center PASSED [ 70%]
+tests/test_estimate_camera_params_wide.py::TestWideFallback::test_fallback_not_enough_points PASSED [ 75%]
+tests/test_estimate_camera_params_wide.py::TestWideK3Exclusive::test_wide_overrides_k3 PASSED [ 80%]
+tests/test_estimate_camera_params_wide.py::TestRegression::test_4coeff_projection PASSED [ 85%]
+tests/test_estimate_camera_params_wide.py::TestRegression::test_no_dist_projection PASSED [ 90%]
+tests/test_estimate_camera_params_wide.py::TestOutputFormat::test_toml_8coeff PASSED [ 95%]
+tests/test_estimate_camera_params_wide.py::TestOutputFormat::test_csv_8coeff_header PASSED [100%]
+
+============================== 20 passed in 0.32s ==============================
+
+================================================================
+テスト2: 単一カメラ後方互換性（1ファイル指定）
+コマンド: uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/cam41520556_intrinsics.toml
+================================================================
+結果: PASS
+
+============================================================
+外部パラメータ推定 (K既知): cam41520556
+============================================================
+設定ファイル: data/config_lab2.yaml
+内部パラメータ: data/ufukui/cam41520556_intrinsics.toml
+3D座標: data/kijunten_locations_lab2.csv
+2D座標: data/points_2d_lab2.csv
+画像サイズ: 1920 x 1080
+
+[内部パラメータ (TOML読み込み)]
+fx: 1213.21
+fy: 1213.10
+cx: 972.65
+cy: 542.47
+歪み係数: [-2.9277, 7.4984, 0.0014, 0.003, -7.8766, -2.8965, 7.408, -7.8105]
+
+基準点数: 13点
+
+[推定手法]
+solvePnPRansac → solvePnP(ITERATIVE) 精密化
+
+[RANSAC結果]
+inlier: 13点 / 全13点
+outlier: なし
+
+[外部パラメータ]
+rvec: [1.642162, 1.039740, -0.658808]
+tvec: [0.523284, 1.835692, -0.786231]
+
+[再投影誤差]
+RMSE: 1.28 pixels
+評価: 優秀
+
+確認事項:
+- 単一カメラファイル指定で正常に動作（後方互換性OK）
+- 従来と同じ出力形式（Calib_scene.toml形式）
+- RMSE 1.28 pixels で優秀な精度
+
+================================================================
+テスト3: 複数カメラ一括推定（6台、統合TOMLファイル使用）
+コマンド: uv run python estimate_camera_params.py data/config_lab2_multi.yaml --intrinsic-toml data/ufukui/intrinsics_all.toml --output /tmp/extrinsic_all.toml
+config: target_camera: cam05520125, cam05520126, cam05520128, cam05520129, cam41520554, cam41520556
+================================================================
+結果: PASS (6台全カメラ推定成功)
+
+カメラ別結果:
+  cam05520125: RMSE 4.02 px, inlier 22/22, 評価: 優秀
+  cam05520126: RMSE 3.09 px, inlier 11/11, 評価: 優秀
+  cam05520128: RMSE 2.97 px, inlier 17/18 (outlier: 基準_033), 評価: 優秀
+  cam05520129: RMSE 7.86 px, inlier 13/16 (outlier: 基準_032, 基準_038, 基準_039), 評価: 良好
+  cam41520554: RMSE 1.05 px, inlier 9/9, 評価: 優秀
+  cam41520556: RMSE 1.28 px, inlier 13/13, 評価: 優秀
+
+確認事項:
+- 6台のカメラを一括で推定できた
+- 各カメラの内部パラメータが統合TOMLファイルから正しく読み込まれた
+- 結果が1つのTOMLファイルに統合出力された
+- cam41520556 の結果がテスト2（単一カメラ指定）と完全に一致
+
+================================================================
+テスト4: 出力TOMLファイルの中身確認
+コマンド: cat /tmp/extrinsic_all.toml
+================================================================
+結果: PASS
+
+出力内容:
+[cam05520125]
+name = "cam05520125"
+size = [1920.0, 1080.0]
+matrix = [[1177.5557, 0.0, 956.5687], [0.0, 1178.0205, 494.813], [0.0, 0.0, 1.0]]
+distortions = [-1.9025, 4.5769, -0.0056, -0.0028, -4.4761, -1.8658, 4.5091, -4.4473]
+rotation = [1.0935468052498032, -1.8540625521656586, 1.286566732395257]
+translation = [-0.2606353555138543, -0.4861030233732904, 5.533705859233677]
+fisheye = false
+
+[cam05520126]
+name = "cam05520126"
+size = [1920.0, 1080.0]
+matrix = [[1171.8839, 0.0, 945.2555], [0.0, 1172.6201, 524.5996], [0.0, 0.0, 1.0]]
+distortions = [-1.3419, -0.5362, -0.0054, -0.0015, 24.4829, -1.2837, -0.726, 24.9667]
+rotation = [-0.12798172867106286, 2.9493208124741512, -0.9152520252324255]
+translation = [-3.158595559836621, -1.340618787822085, 2.413255440396835]
+fisheye = false
+
+[cam05520128]
+name = "cam05520128"
+size = [1920.0, 1080.0]
+matrix = [[1196.0011, 0.0, 928.727], [0.0, 1195.6787, 550.3762], [0.0, 0.0, 1.0]]
+distortions = [0.8425, -10.0155, -0.0023, -0.0035, 22.2244, 0.9366, -10.3227, 22.6489]
+rotation = [0.9362522478945976, 2.1454616325453073, -1.1966300947965811]
+translation = [-3.119004180433727, 0.784670426475004, 0.6149723427462372]
+fisheye = false
+
+[cam05520129]
+name = "cam05520129"
+size = [1920.0, 1080.0]
+matrix = [[1194.0646, 0.0, 968.8934], [0.0, 1199.8779, 519.794], [0.0, 0.0, 1.0]]
+distortions = [-1.3034, -4.6416, -0.0019, -0.0039, 19.2634, -1.2104, -4.9969, 19.7946]
+rotation = [1.8506557504065002, -0.9027691988637955, 0.5846014471112342]
+translation = [2.9838457249732215, -0.3300933205623609, 3.892589364015441]
+fisheye = false
+
+[cam41520554]
+name = "cam41520554"
+size = [1920.0, 1080.0]
+matrix = [[1175.2539, 0.0, 944.0378], [0.0, 1176.4272, 511.9905], [0.0, 0.0, 1.0]]
+distortions = [-2.4447, 8.8703, -0.0029, 0.0004, -10.18, -2.4058, 8.8433, -10.2148]
+rotation = [2.5317579684075167, 0.10312469998328029, -0.002288666650086853]
+translation = [3.0774602324060103, 1.1857389038016626, 1.038902606849239]
+fisheye = false
+
+[cam41520556]
+name = "cam41520556"
+size = [1920.0, 1080.0]
+matrix = [[1213.213, 0.0, 972.6548], [0.0, 1213.1037, 542.4656], [0.0, 0.0, 1.0]]
+distortions = [-2.9277, 7.4984, 0.0014, 0.003, -7.8766, -2.8965, 7.408, -7.8105]
+rotation = [1.6421622849108435, 1.0397401161062065, -0.6588075034068804]
+translation = [0.5232837954798082, 1.8356917904038985, -0.786230515726497]
+fisheye = false
+
+確認事項:
+- 6台全カメラのセクションが含まれている
+- 各セクションに name, size, matrix, distortions, rotation, translation, fisheye が正しく出力
+- TOML形式として正しいフォーマット
+
+================================================================
+テスト5: 通常モード（K未知）で複数カメラ指定時のエラーチェック
+コマンド: uv run python estimate_camera_params.py data/config_lab2_multi.yaml
+================================================================
+結果: PASS (期待通りエラー終了)
+
+出力:
+エラー: 通常モード（K未知）では複数カメラの指定はサポートされていません。
+  複数カメラの一括推定には --intrinsic-toml を使用してください。
+終了コード: 1
+
+確認事項:
+- 複数カメラ + K未知モードでは適切なエラーメッセージが表示される
+- 終了コード1で正常にエラー終了
+
+================================================================
+テスト6: --output の親ディレクトリが存在しない場合のエラーチェック
+コマンド: uv run python estimate_camera_params.py data/config_lab2_multi.yaml --intrinsic-toml data/ufukui/intrinsics_all.toml --output /tmp/nonexistent_dir/extrinsic.toml
+================================================================
+結果: PASS (期待通りエラー終了)
+
+出力:
+エラー: 出力先ディレクトリが存在しません: /tmp/nonexistent_dir
+終了コード: 1
+
+確認事項:
+- 存在しないディレクトリへの出力指定で適切なエラーメッセージが表示される
+- 終了コード1で正常にエラー終了
+
+================================================================
+テスト7: クリーンアップ
+================================================================
+- data/config_lab2_multi.yaml: 削除済み
+- data/ufukui/intrinsics_all.toml: 残置（ユーザー利用のため）
+
+================================================================
+総合結果: 全7テスト PASS
+================================================================
+テスト1 (既存テストスイート 20/20): PASS
+テスト2 (単一カメラ後方互換性):    PASS
+テスト3 (複数カメラ一括推定):      PASS
+テスト4 (TOML出力確認):            PASS
+テスト5 (K未知複数カメラエラー):   PASS
+テスト6 (存在しないディレクトリ):  PASS
+テスト7 (クリーンアップ):          PASS

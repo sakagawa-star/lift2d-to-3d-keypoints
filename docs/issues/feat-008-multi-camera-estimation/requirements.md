@@ -32,23 +32,17 @@ target_camera: cam05520125, cam05520126, cam05520128, cam05520129, cam41520554, 
 
 ### --intrinsic-toml
 
-カメラごとに個別の intrinsic TOML が存在する（`cam05520125_intrinsics.toml` など）。
-各TOMLファイルにはそのカメラ名のセクションしかないため、複数カメラを一括処理するには複数のTOMLファイルを読む必要がある。
-
-方式: `--intrinsic-toml` にディレクトリを指定可能にする。
+全カメラの内部パラメータを1つのTOMLファイルにまとめて渡す。
+各カメラはTOMLのセクション名（`[cam05520125]` など）で区別される。
+既存の `load_intrinsic_toml` はセクション名でカメラを検索する仕組みなので、変更不要。
 
 ```bash
-# 既存（1ファイル）— 引き続き動作する
+# 1台の場合（既存と同じ）
 uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/cam05520125_intrinsics.toml
 
-# 新規（ディレクトリ指定）
-uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/
+# 複数台の場合（全カメラの内部パラメータをまとめた1ファイルを指定）
+uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/intrinsics_all.toml
 ```
-
-ディレクトリが指定された場合:
-- ディレクトリ内の `*_intrinsics.toml` ファイルを全て読み込む
-- 各TOMLから `target_camera` に一致するカメラの内部パラメータを探す
-- ディレクトリ内に `*_intrinsics.toml` が1つも存在しない場合はエラー終了する
 
 ## 出力の変更
 
@@ -63,7 +57,7 @@ uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml d
 
 ```bash
 uv run python estimate_camera_params.py data/config_lab2.yaml \
-  --intrinsic-toml data/ufukui/ \
+  --intrinsic-toml data/ufukui/intrinsics_all.toml \
   --output data/ufukui/extrinsic_all.toml
 ```
 
@@ -95,6 +89,7 @@ name = "cam05520126"
 - 1台でも推定に失敗した場合、そのカメラはスキップし警告を出す。他のカメラの推定は続行する
 - 全カメラの推定が失敗した場合、`--output` 指定時もファイルは出力しない。エラーメッセージを表示する
 - `--output` 指定時、既存ファイルがあれば上書きする
+- `--output` 指定時、出力先ディレクトリが存在しない場合はエラーメッセージを表示して終了する
 - `target_camera` のパース時、空文字列（`cam01, , cam02` など）はフィルタする。重複するカメラ名もフィルタする
 
 ## 品質基準

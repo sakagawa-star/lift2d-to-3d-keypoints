@@ -1,6 +1,6 @@
 # feat-008: estimate_camera_params.py 複数カメラ一括推定
 
-## Status: Open
+## Status: Closed
 
 ## 概要
 
