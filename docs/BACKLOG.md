@@ -11,4 +11,6 @@
 | feat-005 | 機能追加 | render.py フレーム範囲指定オプション | Closed |
 | feat-006 | 機能追加 | render.py ドライランモード | Closed |
 | feat-007 | 機能追加 | render.py MP4ファイル保存機能 | Closed |
+| feat-008 | 機能追加 | estimate_camera_params.py 複数カメラ一括推定 | Open |
+| feat-009 | 機能追加 | 三角測量による外部パラメータ検証 | Open |
 
