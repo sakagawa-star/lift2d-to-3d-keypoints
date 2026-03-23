@@ -1,0 +1,124 @@
+feat-009 テスト結果
+実行日: 2026-03-23
+
+============================================================
+1. 既存テストスイート (uv run pytest tests/ -v)
+============================================================
+
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 20 items
+
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicRansac::test_clean_data PASSED [  5%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicRansac::test_with_outlier PASSED [ 10%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicNoRansac::test_4_points PASSED [ 15%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicError::test_3_points_returns_none PASSED [ 20%]
+tests/test_estimate_camera_params_extrinsic.py::TestExtrinsicError::test_0_points_returns_none PASSED [ 25%]
+tests/test_estimate_camera_params_extrinsic.py::TestLoadToml::test_normal_toml PASSED [ 30%]
+tests/test_estimate_camera_params_extrinsic.py::TestLoadToml::test_camera_not_found PASSED [ 35%]
+tests/test_estimate_camera_params_extrinsic.py::TestOptionWarning::test_intrinsic_with_k3_warning PASSED [ 40%]
+tests/test_estimate_camera_params_extrinsic.py::TestRegression::test_4coeff_still_works PASSED [ 45%]
+tests/test_estimate_camera_params_extrinsic.py::TestCommonModule::test_import PASSED [ 50%]
+tests/test_estimate_camera_params_extrinsic.py::TestCommonModule::test_match_points PASSED [ 55%]
+tests/test_estimate_camera_params_extrinsic.py::TestTomlOutput::test_extrinsic_toml_output PASSED [ 60%]
+tests/test_estimate_camera_params_wide.py::TestWideEstimation::test_8coeff_estimation PASSED [ 65%]
+tests/test_estimate_camera_params_wide.py::TestWideFixCenter::test_8coeff_fix_center PASSED [ 70%]
+tests/test_estimate_camera_params_wide.py::TestWideFallback::test_fallback_not_enough_points PASSED [ 75%]
+tests/test_estimate_camera_params_wide.py::TestWideK3Exclusive::test_wide_overrides_k3 PASSED [ 80%]
+tests/test_estimate_camera_params_wide.py::TestRegression::test_4coeff_projection PASSED [ 85%]
+tests/test_estimate_camera_params_wide.py::TestRegression::test_no_dist_projection PASSED [ 90%]
+tests/test_estimate_camera_params_wide.py::TestOutputFormat::test_toml_8coeff PASSED [ 95%]
+tests/test_estimate_camera_params_wide.py::TestOutputFormat::test_csv_8coeff_header PASSED [100%]
+
+============================== 20 passed in 0.31s ==============================
+
+結果: 全20テスト PASSED
+
+============================================================
+2. 三角測量検証スクリプト
+============================================================
+
+2-1. 外部パラメータ推定 (estimate_camera_params.py --intrinsic-toml)
+------------------------------------------------------------
+
+6台のカメラの外部パラメータを推定:
+  - cam05520125: RMSE 4.02 px (優秀)
+  - cam05520126: RMSE 3.09 px (優秀)
+  - cam05520128: RMSE 2.97 px (優秀, outlier: 基準_033)
+  - cam05520129: RMSE 7.86 px (良好, outlier: 基準_032, 基準_038, 基準_039)
+  - cam41520554: RMSE 1.05 px (優秀)
+  - cam41520556: RMSE 1.28 px (優秀)
+
+結果: /tmp/extrinsic_all.toml に保存成功
+
+2-2. 三角測量検証 (verify_triangulation.py)
+------------------------------------------------------------
+
+読み込みカメラ数: 6台
+  - cam05520125
+  - cam05520126
+  - cam05520128
+  - cam05520129
+  - cam41520554
+  - cam41520556
+
+[カメラペア別 平均3D復元誤差]
+  cam05520125 - cam05520126: 0.032m (6点)
+  cam05520125 - cam05520128: 0.012m (7点)
+  cam05520125 - cam05520129: 0.012m (6点)
+  cam05520125 - cam41520554: 0.011m (3点)
+  cam05520125 - cam41520556: 0.010m (2点)
+  cam05520126 - cam05520128: 0.011m (8点)
+  cam05520126 - cam05520129: 0.008m (3点)
+  cam05520126 - cam41520554: 0.006m (4点)
+  cam05520126 - cam41520556: 0.007m (3点)
+  cam05520128 - cam05520129: 0.007m (5点)
+  cam05520128 - cam41520554: 0.005m (5点)
+  cam05520128 - cam41520556: 0.009m (10点)
+  cam05520129 - cam41520554: 0.016m (6点)
+  cam05520129 - cam41520556: 0.007m (5点)
+  cam41520554 - cam41520556: 0.006m (5点)
+
+[カメラ別 平均3D復元誤差]（全ペアの平均）
+  cam05520125: 0.017m
+  cam05520126: 0.015m
+  cam05520128: 0.009m
+  cam05520129: 0.011m
+  cam41520554: 0.009m
+  cam41520556: 0.008m
+
+結果: 全15ペアで三角測量検証成功
+
+============================================================
+3. エラーケース: カメラ1台のみのTOML
+============================================================
+
+コマンド: uv run python verify_triangulation.py data/config_lab2.yaml data/ufukui/cam05520125_intrinsics.toml
+終了コード: 1
+出力: エラー: カメラが2台未満です（1台）。三角測量検証には2台以上必要です。
+
+結果: 期待通りのエラーメッセージで終了
+
+============================================================
+4. エラーケース: 存在しないファイル
+============================================================
+
+コマンド: uv run python verify_triangulation.py data/config_lab2.yaml nonexistent.toml
+終了コード: 1
+出力: エラー: TOMLファイルが見つかりません: nonexistent.toml
+
+結果: 期待通りのエラーメッセージで終了
+
+============================================================
+総合結果
+============================================================
+
+1. 既存テストスイート: PASSED (20/20)
+2. 三角測量検証スクリプト: 正常動作（全15ペア検証完了、平均誤差 0.005m〜0.032m）
+3. エラーケース（1台カメラ）: 期待通りのエラー
+4. エラーケース（存在しないファイル）: 期待通りのエラー
+
+全テスト合格

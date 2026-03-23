@@ -1,6 +1,6 @@
 # feat-009: 三角測量による外部パラメータ検証
 
-## Status: Open
+## Status: Closed
 
 ## 概要
 

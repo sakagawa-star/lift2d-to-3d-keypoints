@@ -7,6 +7,8 @@
 - 2D-3D点対応によるカメラ内部・外部パラメータ推定
 - 歪み係数の推定（4係数 / 5係数 / 8係数広角対応）
 - 内部パラメータ既知（K既知）での外部パラメータのみの推定
+- 複数カメラの一括推定（K既知モード）
+- 三角測量による外部パラメータ検証
 - Ground Truthとの比較検証
 - Calib_scene.toml / camera_params.csv 形式での結果出力
 
@@ -39,7 +41,15 @@ uv run python estimate_camera_params.py data/config.yaml --wide
 uv run python estimate_camera_params.py data/config.yaml --wide --fix-center
 
 # K既知モード（内部パラメータTOMLからR, tのみ推定）
-uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/05520125_intrinsics.toml
+uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/cam05520125_intrinsics.toml
+
+# 複数カメラ一括推定（K既知モード、結果をTOMLファイルに出力）
+uv run python estimate_camera_params.py data/config_lab2.yaml \
+  --intrinsic-toml data/ufukui/intrinsics_all.toml \
+  --output data/ufukui/extrinsic_all.toml
+
+# 三角測量による外部パラメータ検証
+uv run python verify_triangulation.py data/config_lab2.yaml data/ufukui/extrinsic_all.toml
 
 # 推定結果の検証（Ground Truth比較）
 uv run python phase0_verification.py data/config.yaml

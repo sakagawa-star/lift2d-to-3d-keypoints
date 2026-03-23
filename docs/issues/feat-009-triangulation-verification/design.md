@@ -13,12 +13,48 @@ uv run python verify_triangulation.py <config.yaml> <extrinsic.toml>
 - `config.yaml`: 既存の設定ファイル（`points_3d`, `points_2d` のパスを参照）
 - `extrinsic.toml`: feat-008 の `--output` で出力された全カメラの推定結果TOML
 
+引数パースには `argparse` を使用する（既存の `estimate_camera_params.py` と統一）。
+
 ### config.yaml から使用するフィールド
 
 - `points_3d`: 3D基準点CSVのパス（config.yaml の親ディレクトリからの相対パスとして解決する）
 - `points_2d`: 2D観測CSVのパス（同上）
 
 `target_camera` は使用しない（対象カメラは extrinsic.toml のセクション名で決まる）。
+
+### main 関数
+
+```python
+def main():
+    parser = argparse.ArgumentParser(description='三角測量による外部パラメータ検証')
+    parser.add_argument('config', help='設定ファイル (config.yaml)')
+    parser.add_argument('extrinsic_toml', help='推定結果TOMLファイル')
+    args = parser.parse_args()
+
+    config = load_yaml_simple(args.config)
+    config_dir = Path(args.config).parent
+
+    points_3d_path = config_dir / config['points_3d']
+    points_2d_path = config_dir / config['points_2d']
+
+    # 全カメラのパラメータを読み込む
+    cameras = load_all_cameras(args.extrinsic_toml)
+    if len(cameras) < 2:
+        print(f"エラー: カメラが2台未満です（{len(cameras)}台）。三角測量検証には2台以上必要です。")
+        return 1
+
+    # データ読み込み
+    points_3d_dict = load_points_3d(points_3d_path)
+    points_2d_all = load_points_2d_all(points_2d_path)
+
+    # カメラペア生成 → 三角測量 → 結果表示
+    # ... （以降のロジック）
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())
+```
 
 ## データフロー
 
@@ -197,6 +233,8 @@ else:
 ## 依存関係
 
 - `common.py`: `load_yaml_simple`, `load_points_3d` を使用
+- `argparse`: コマンドライン引数パース
+- `pathlib.Path`: config.yaml からの相対パス解決
 - `tomli`: TOML読み込み（既存の依存）
 - `cv2`: `triangulatePoints`, `undistortPoints`, `Rodrigues`
 - `numpy`: 行列演算

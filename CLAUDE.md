@@ -49,6 +49,7 @@ lift2d-to-3d-keypoints/
 │   ├── estimate_camera_params.py      # カメラパラメータ推定（メイン、K既知モード対応）
 │   ├── common.py                      # 共通関数モジュール
 │   ├── phase0_verification.py         # 検証スクリプト
+│   ├── verify_triangulation.py        # 三角測量による外部パラメータ検証
 │   ├── convert_toml_to_csv.py         # TOML→CSV変換
 │   ├── blender/                        # Blenderスクリプト
 │   │   └── mk_points_3d.py           # 3D基準点CSV生成
