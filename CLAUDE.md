@@ -50,6 +50,7 @@ lift2d-to-3d-keypoints/
 │   ├── common.py                      # 共通関数モジュール
 │   ├── phase0_verification.py         # 検証スクリプト
 │   ├── verify_triangulation.py        # 三角測量による外部パラメータ検証
+│   ├── visualize_points_2d.py         # 2D座標を静止画上にプロットして可視化
 │   ├── convert_toml_to_csv.py         # TOML→CSV変換
 │   ├── blender/                        # Blenderスクリプト
 │   │   └── mk_points_3d.py           # 3D基準点CSV生成

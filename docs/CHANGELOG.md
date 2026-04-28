@@ -2,6 +2,15 @@
 
 ## リリース履歴
 
+### 2026-04-28
+
+- **feat-010**: 2D座標を静止画上にプロットして可視化（`phase0/visualize_points_2d.py`）
+  - `points_2d.csv` の入力ミスを目視確認するための新規スクリプト
+  - config.yaml に `image_<camera_name>` キーで画像パスを記述、対象カメラの2D点を元画像に重ねて描画
+  - `<入力画像>_annotated.<拡張子>` として同ディレクトリに保存
+- **bug-001**: visualize_points_2d.py のパス解決を既存スクリプトと統一
+  - `points_2d` および `image_<camera_name>` のパスを config ファイルのあるディレクトリ基準で解決するよう修正
+
 ### 2026-03-23
 
 - **feat-009**: 三角測量による外部パラメータ検証（`phase0/verify_triangulation.py`）

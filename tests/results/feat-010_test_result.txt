@@ -1,0 +1,20 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 11 items
+
+tests/test_visualize_points_2d.py::test_resolve_target_camera_with_arg PASSED [  9%]
+tests/test_visualize_points_2d.py::test_resolve_target_camera_single_from_config PASSED [ 18%]
+tests/test_visualize_points_2d.py::test_resolve_target_camera_multi_without_arg_exits PASSED [ 27%]
+tests/test_visualize_points_2d.py::test_resolve_target_camera_multi_with_arg PASSED [ 36%]
+tests/test_visualize_points_2d.py::test_resolve_target_camera_missing_exits PASSED [ 45%]
+tests/test_visualize_points_2d.py::test_resolve_image_path_ok PASSED     [ 54%]
+tests/test_visualize_points_2d.py::test_resolve_image_path_missing_key_exits PASSED [ 63%]
+tests/test_visualize_points_2d.py::test_resolve_image_path_missing_file_exits PASSED [ 72%]
+tests/test_visualize_points_2d.py::test_draw_points_on_image_writes_file PASSED [ 81%]
+tests/test_visualize_points_2d.py::test_draw_points_on_image_counts_out_of_range PASSED [ 90%]
+tests/test_visualize_points_2d.py::test_draw_points_on_image_resolution_mismatch_warns PASSED [100%]
+
+============================== 11 passed in 0.14s ==============================
