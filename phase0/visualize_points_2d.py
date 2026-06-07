@@ -5,6 +5,7 @@ points_2d.csv の2D点を画像に重ねて描画した結果を保存する。
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -53,11 +54,50 @@ def resolve_image_path(config: dict, camera_name: str, config_dir: Path) -> Path
     return image_path
 
 
+def extract_point_number(name: str) -> str:
+    """ObjectNameから番号部分を抽出する
+
+    最後に現れる連続数字列を返す（例: '基準_01' → '01'）。
+    数字が含まれない場合は ObjectName 全体を返す。
+    """
+    matches = re.findall(r"\d+", name)
+    return matches[-1] if matches else name
+
+
+def draw_label(img, label: str, ix: int, iy: int, w: int, h: int) -> None:
+    """点の近傍に番号ラベルを描画する（画像端でははみ出さない位置に調整）"""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.6
+    thickness = 1
+    (tw, th), baseline = cv2.getTextSize(label, font, scale, thickness)
+
+    # 既定位置: 点の右上（マーカー半径8pxを避けるオフセット）
+    tx = ix + 10
+    ty = iy - 10
+    # 右端ではみ出す場合は左側へ
+    if tx + tw > w:
+        tx = ix - 10 - tw
+    # 上端ではみ出す場合は下側へ
+    if ty - th < 0:
+        ty = iy + 10 + th
+
+    # 最終クランプ（左端・下端を含む全方向ではみ出さないことを保証）
+    # MARGIN: 黒縁取り（thickness+2）とアンチエイリアスの滲みを見込んだ余白
+    MARGIN = 3
+    tx = max(MARGIN, min(tx, w - tw - MARGIN))
+    ty = max(th + MARGIN, min(ty, h - baseline - MARGIN))
+
+    # 縁取り（黒で太く）→ 本体（緑）の二度描きで視認性を確保
+    cv2.putText(img, label, (tx, ty), font, scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
+    cv2.putText(img, label, (tx, ty), font, scale, (0, 255, 0), thickness, cv2.LINE_AA)
+
+
 def draw_points_on_image(
     image_path: Path,
     points: dict,
     output_path: Path,
     config: dict,
+    show_label: bool = False,
 ) -> tuple[int, int]:
     """画像に2D点を描画して保存する
 
@@ -92,6 +132,8 @@ def draw_points_on_image(
             continue
         cv2.circle(img, (ix, iy), radius=8, color=(0, 0, 255), thickness=2)
         cv2.circle(img, (ix, iy), radius=1, color=(0, 255, 255), thickness=-1)
+        if show_label:
+            draw_label(img, extract_point_number(name), ix, iy, w, h)
         drawn += 1
 
     cv2.imwrite(str(output_path), img)
@@ -107,6 +149,11 @@ def main() -> int:
         "--camera",
         default=None,
         help="可視化対象のカメラ名（target_camera が複数指定の場合は必須）",
+    )
+    parser.add_argument(
+        "--label",
+        action="store_true",
+        help="基準点の番号（ObjectNameの数字部分）をラベル表示する",
     )
     args = parser.parse_args()
 
@@ -136,9 +183,12 @@ def main() -> int:
         f"{image_path.stem}_annotated{image_path.suffix}"
     )
 
-    drawn, skipped = draw_points_on_image(image_path, points, output_path, config)
+    drawn, skipped = draw_points_on_image(
+        image_path, points, output_path, config, show_label=args.label
+    )
 
     print(f"カメラ: {camera_name}")
+    print(f"ラベル表示: {'有効' if args.label else '無効'}")
     print(f"入力画像: {image_path}")
     print(f"出力画像: {output_path}")
     print(f"描画点数: {drawn} / 範囲外スキップ: {skipped}")
