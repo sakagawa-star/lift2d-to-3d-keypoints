@@ -113,15 +113,15 @@ uv run python convert_toml_to_csv.py
 cd phase4
 
 # 1. カメラポーズ書き出し（Blender内スクリプト。GUIのScriptingタブまたはヘッドレスで実行）
-#    前提: シーンに FPSCamera という名前のカメラが存在すること
-#    出力先: phase4/data/FPS-camera_poses.json（スクリプト内に絶対パスでハードコード）
-blender -b data/FPS-camera.blend --python camera_pose.py
+#    --camera でカメラオブジェクト名を指定する（必須）
+#    出力先: --output で指定。省略時は data/<カメラ名>_poses.json
+blender -b data/FPS-camera.blend --python camera_pose.py -- --camera FPSCamera
 
 # 2. バッチレンダリング（dry-run: 画像保存なしで動作確認・速度計測）
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS-camera_poses.json --dry-run
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --dry-run
 
 # 3. バッチレンダリング（連番PNG + MP4出力）
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS-camera_poses.json --mp4
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --mp4
 ```
 
 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:

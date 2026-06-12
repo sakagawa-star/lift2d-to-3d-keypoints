@@ -16,4 +16,5 @@
 | feat-010 | 機能追加 | 2D座標を静止画上にプロットして可視化 | Closed |
 | bug-001 | 不具合 | visualize_points_2d.py のパス解決が既存スクリプトと不整合 | Closed |
 | feat-011 | 機能追加 | visualize_points_2d.py 基準点番号ラベル表示オプション | Closed |
+| feat-012 | 機能追加 | camera_pose.py カメラ名・出力先のCLIオプション化 | Closed |
 

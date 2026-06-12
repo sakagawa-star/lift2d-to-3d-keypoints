@@ -2,6 +2,14 @@
 
 ## リリース履歴
 
+### 2026-06-12
+
+- **feat-012**: camera_pose.py カメラ名・出力先のCLIオプション化
+  - `--camera`（必須）でカメラオブジェクト名、`--output`（任意、デフォルト `data/<カメラ名>_poses.json`）で出力先を指定可能に（`blender ... --python camera_pose.py -- --camera <名前>` 形式）
+  - カメラがシーンに不在・非カメラ型・フレーム範囲不正の場合はエラー終了（シーン内カメラ一覧を stderr に表示）
+  - KIRIモディファイヤの一時無効化を try/finally 化し、元の表示状態に復元するよう修正
+  - テスト追加: `tests/test_feat012_camera_pose_args.py`（8件、全成功）
+
 ### 2026-06-07
 
 - **feat-011**: visualize_points_2d.py 基準点番号ラベル表示オプション
