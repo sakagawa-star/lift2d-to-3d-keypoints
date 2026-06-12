@@ -62,6 +62,7 @@ lift2d-to-3d-keypoints/
 │       └── *.blend / *.ply           # 3Dモデルファイル
 ├── phase4/                      # gsplatバッチレンダリング
 │   ├── pyproject.toml                 # uv パッケージ管理
+│   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── render.py                      # バッチレンダリングスクリプト
 │   └── data/                          # データファイル（gitignore）
 └── tests/                       # テストコード
@@ -70,7 +71,9 @@ lift2d-to-3d-keypoints/
 
 ## スクリプト実行
 
-すべてのスクリプトは `phase0/` ディレクトリで実行する。
+### phase0（カメラパラメータ推定）
+
+スクリプトは `phase0/` ディレクトリで実行する。
 
 ```bash
 cd phase0
@@ -99,6 +102,34 @@ uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml d
 # TOML→CSV変換
 uv run python convert_toml_to_csv.py
 ```
+
+### phase4（gsplatバッチレンダリング）
+
+スクリプトは `phase4/` ディレクトリで実行する（phase0 とは独立した uv 環境）。
+
+ワークフロー: KIRI Engine アドオンで Blender に 3DGS を展開してカメラパスを作成 → `camera_pose.py` でカメラポーズを JSON に書き出し → `render.py` で gsplat レンダリング。
+
+```bash
+cd phase4
+
+# 1. カメラポーズ書き出し（Blender内スクリプト。GUIのScriptingタブまたはヘッドレスで実行）
+#    前提: シーンに FPSCamera という名前のカメラが存在すること
+#    出力先: phase4/data/FPS-camera_poses.json（スクリプト内に絶対パスでハードコード）
+blender -b data/FPS-camera.blend --python camera_pose.py
+
+# 2. バッチレンダリング（dry-run: 画像保存なしで動作確認・速度計測）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS-camera_poses.json --dry-run
+
+# 3. バッチレンダリング（連番PNG + MP4出力）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS-camera_poses.json --mp4
+```
+
+**`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:
+
+- gsplat 1.5.3 には torch 2.10+cu128 向けのビルド済み wheel がなく、初回実行時に CUDA 拡張が JIT コンパイルされる
+- 環境変数なしだと GPU（RTX 5060 Ti = sm_120）が検出され、システムの nvcc（CUDA 12.6）が sm_120 非対応のため `nvcc fatal: Unsupported gpu architecture 'compute_120'` でビルドが失敗する
+- この環境変数で compute_90 の PTX を生成し、ドライバの JIT 変換で sm_120 上で実行する（ビルドキャッシュは `~/.cache/torch_extensions/py310_cu128/gsplat_cuda/`）
+- 恒久対策は CUDA Toolkit 12.8 以上のインストール（その場合この環境変数は不要になる）
 
 ## アーキテクチャ
 

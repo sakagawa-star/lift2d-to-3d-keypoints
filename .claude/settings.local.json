@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(uv run *)",
+      "Bash(tee tests/results/feat-011_test_result.txt)",
+      "Bash(git push *)",
+      "Bash(nvidia-smi --query-gpu=name,compute_cap,driver_version --format=csv)",
+      "Read(//usr/local/**)",
+      "Bash(/usr/local/cuda-12.6/bin/nvcc --version)",
+      "WebFetch(domain:docs.gsplat.studio)",
+      "Read(//home/sakagawa/.cache/torch_extensions/**)"
     ]
   }
 }
