@@ -9,7 +9,14 @@
       "Read(//usr/local/**)",
       "Bash(/usr/local/cuda-12.6/bin/nvcc --version)",
       "WebFetch(domain:docs.gsplat.studio)",
-      "Read(//home/sakagawa/.cache/torch_extensions/**)"
+      "Read(//home/sakagawa/.cache/torch_extensions/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(uv add *)",
+      "Bash(TORCH_CUDA_ARCH_LIST=\"9.0+PTX\" timeout 540 uv run python /tmp/diag.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(codex exec *)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

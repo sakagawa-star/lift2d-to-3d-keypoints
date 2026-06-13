@@ -101,12 +101,6 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 
 # 3. バッチレンダリング（連番PNG + MP4出力）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --mp4
-
-# 4. ピンホール3DGSレンダリング（指定カメラ視点でPNG1枚。GT比較用。feat-015）
-#    PLY + キャリブTOML + --camera を渡す。--near-plane でカメラ至近のfloaterを除去（0.01:黒い靄 → 0.5:鮮明）
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
-    data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
-    --camera cam41520554 --near-plane 0.5 --output /tmp/render.png
 ```
 
 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:
@@ -159,7 +153,6 @@ lift2d-to-3d-keypoints/
 │   ├── pyproject.toml                 # uv パッケージ管理
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── render.py                      # バッチレンダリングスクリプト
-│   ├── render_keypoints.py            # ピンホール3DGSレンダリング（PNG出力、GT比較。feat-016でキーポイント重ね描き・オクルージョン追加予定）
 │   └── data/                          # データファイル（gitignore）
 └── tests/                             # テストコード
     └── results/                       # テスト結果保存先
@@ -372,6 +365,3 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **bug-001**: visualize_points_2d.py のパス解決を既存スクリプトと統一（2026-04-28完了）
 - **feat-011**: visualize_points_2d.py 基準点番号ラベル表示オプション（2026-06-07完了、`--label`）
 - **feat-012**: camera_pose.py カメラ名・出力先のCLIオプション化（2026-06-12完了、`--camera`/`--output`）
-- **feat-013**: 3DGSレンダリング画像への3Dキーポイント重ね描き（中止。feat-015/016 に分割して作り直し）
-- **feat-014**: ピンホール3DGSレンダリング（PNG出力、GT比較）（中止。feat-015 に作り直し）
-- **feat-015**: ピンホール3DGSレンダリング（PNG出力、GT比較）（2026-06-14完了、`render_keypoints.py` を3DGSレンダリングのみに作り直し、`--camera`/`--near-plane`/`--output`/`--background`）

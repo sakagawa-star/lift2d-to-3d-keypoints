@@ -1,0 +1,22 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 13 items
+
+tests/test_feat015_render.py::TestCameraToViewmat::test_identity_rotation PASSED [  7%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_bottom_row PASSED [ 15%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_rotation_matches_rodrigues PASSED [ 23%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_rotation_is_orthonormal PASSED [ 30%]
+tests/test_feat015_render.py::TestSelectCamera::test_returns_existing PASSED [ 38%]
+tests/test_feat015_render.py::TestSelectCamera::test_missing_raises_with_available PASSED [ 46%]
+tests/test_feat015_render.py::TestLoadCamerasTomlSynth::test_loads_only_matrix_tables PASSED [ 53%]
+tests/test_feat015_render.py::TestMainErrorPaths::test_imwrite_false_returns_1 PASSED [ 61%]
+tests/test_feat015_render.py::TestMainErrorPaths::test_imwrite_cv2error_returns_1 PASSED [ 69%]
+tests/test_feat015_render.py::TestMainErrorPaths::test_missing_camera_returns_1 PASSED [ 76%]
+tests/test_feat015_render.py::TestRealData::test_loads_five_cameras PASSED [ 84%]
+tests/test_feat015_render.py::TestRealData::test_select_existing PASSED  [ 92%]
+tests/test_feat015_render.py::TestRealData::test_select_missing_raises PASSED [100%]
+
+============================== 13 passed in 0.11s ==============================

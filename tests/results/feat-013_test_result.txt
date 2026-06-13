@@ -1,0 +1,41 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 26 items
+
+tests/test_feat013_render_keypoints.py::TestC3dToCalib::test_single_point PASSED [  3%]
+tests/test_feat013_render_keypoints.py::TestC3dToCalib::test_array_of_points PASSED [  7%]
+tests/test_feat013_render_keypoints.py::TestC3dToCalib::test_multiframe_shape PASSED [ 11%]
+tests/test_feat013_render_keypoints.py::TestC3dToCalib::test_mm_to_m_scale PASSED [ 15%]
+tests/test_feat013_render_keypoints.py::TestCameraToViewmat::test_identity_rotation PASSED [ 19%]
+tests/test_feat013_render_keypoints.py::TestCameraToViewmat::test_bottom_row PASSED [ 23%]
+tests/test_feat013_render_keypoints.py::TestCameraToViewmat::test_rotation_matches_rodrigues PASSED [ 26%]
+tests/test_feat013_render_keypoints.py::TestCameraToViewmat::test_rotation_is_orthonormal PASSED [ 30%]
+tests/test_feat013_render_keypoints.py::TestDistortionToGsplat::test_shapes PASSED [ 34%]
+tests/test_feat013_render_keypoints.py::TestDistortionToGsplat::test_radial_mapping PASSED [ 38%]
+tests/test_feat013_render_keypoints.py::TestDistortionToGsplat::test_tangential_mapping PASSED [ 42%]
+tests/test_feat013_render_keypoints.py::TestDistortionToGsplat::test_dtype_float32 PASSED [ 46%]
+tests/test_feat013_render_keypoints.py::TestExtractHalpe26::test_extracts_26_in_order PASSED [ 50%]
+tests/test_feat013_render_keypoints.py::TestExtractHalpe26::test_all_valid_when_residual_zero PASSED [ 53%]
+tests/test_feat013_render_keypoints.py::TestExtractHalpe26::test_negative_residual_invalid PASSED [ 57%]
+tests/test_feat013_render_keypoints.py::TestExtractHalpe26::test_nan_coord_invalid PASSED [ 61%]
+tests/test_feat013_render_keypoints.py::TestExtractHalpe26::test_missing_marker_raises PASSED [ 65%]
+tests/test_feat013_render_keypoints.py::TestDrawOverlay::test_returns_copy PASSED [ 69%]
+tests/test_feat013_render_keypoints.py::TestDrawOverlay::test_draws_when_valid PASSED [ 73%]
+tests/test_feat013_render_keypoints.py::TestDrawOverlay::test_no_draw_when_all_invalid PASSED [ 76%]
+tests/test_feat013_render_keypoints.py::TestDrawOverlay::test_bone_needs_both_ends_valid PASSED [ 80%]
+tests/test_feat013_render_keypoints.py::TestSkeletonDefinition::test_all_bone_names_in_halpe26 PASSED [ 84%]
+tests/test_feat013_render_keypoints.py::TestLoadCamerasTomlRealData::test_loads_five_cameras PASSED [ 88%]
+tests/test_feat013_render_keypoints.py::TestLoadCamerasTomlRealData::test_select_existing PASSED [ 92%]
+tests/test_feat013_render_keypoints.py::TestLoadCamerasTomlRealData::test_select_missing_raises PASSED [ 96%]
+tests/test_feat013_render_keypoints.py::TestProjectionRealData::test_keypoints_mostly_in_frame PASSED [100%]
+
+=============================== warnings summary ===============================
+tests/test_feat013_render_keypoints.py::TestProjectionRealData::test_keypoints_mostly_in_frame
+  /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/lib/python3.10/site-packages/c3d/c3d.py:1219: UserWarning: No analog data found in file.
+    warnings.warn('No analog data found in file.')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 26 passed, 1 warning in 0.20s =========================

@@ -10,4 +10,7 @@ dependencies = [
     "Pillow",
     "packaging>=26.0",
     "setuptools>=82.0.1",
+    "opencv-python>=4.13.0.92",
+    "tomli>=2.4.1",
+    "c3d>=0.6.0",
 ]

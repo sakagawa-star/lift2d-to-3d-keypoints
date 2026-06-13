@@ -17,4 +17,8 @@
 | bug-001 | 不具合 | visualize_points_2d.py のパス解決が既存スクリプトと不整合 | Closed |
 | feat-011 | 機能追加 | visualize_points_2d.py 基準点番号ラベル表示オプション | Closed |
 | feat-012 | 機能追加 | camera_pose.py カメラ名・出力先のCLIオプション化 | Closed |
+| feat-013 | 機能追加 | 3DGSレンダリング画像への3Dキーポイント重ね描き | 中止（feat-015/016 に作り直し） |
+| feat-014 | 機能追加 | ピンホール3DGSレンダリング（PNG出力、GT比較） | 中止（feat-015 に作り直し） |
+| feat-015 | 機能追加 | ピンホール3DGSレンダリング（PNG出力、GT比較） | Closed |
+| feat-016 | 機能追加 | キーポイントのオクルージョン（深度による前後判定） | Open |
 
