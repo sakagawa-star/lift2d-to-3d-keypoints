@@ -102,15 +102,19 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 # 3. バッチレンダリング（連番PNG + MP4出力）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --mp4
 
-# 4. ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、PNG1枚。feat-015/016）
-#    PLY + キャリブTOML + C3D（Halpe26、先頭フレーム）+ --camera を渡す。
+# 4. ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、連番PNG/MP4。feat-015/016/017）
+#    PLY + キャリブTOML + C3D（Halpe26、全フレーム）+ --camera を渡す。
 #    --near-plane でカメラ至近のfloaterを除去（0.01:黒い靄 → 0.5:鮮明）。
 #    深度比較で手前の3DGSに隠れる点・ボーンを隠蔽。--no-occlusion で隠蔽OFF（比較用）、
 #    --occlusion-margin で深度マージン調整（既定0.05m）。
+#    カメラ固定のため背景レンダリングはループ前に1回だけ計算し全フレームで共有する。
+#    出力は --output-dir に連番PNG（frame_<C3Dフレーム番号:06d>.png）。--mp4 でMP4も出力
+#    （fps既定はC3D rate、--mp4-fps で上書き。小数fps保持）。範囲は --start-frame/--end-frame
+#    （両端含む）。1フレームだけ見たい場合は --start-frame N --end-frame N で絞る。
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
     data/Blender/keypoints.c3d \
-    --camera cam41520554 --near-plane 0.5 --output /tmp/keypoints.png
+    --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
 ```
 
 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:
@@ -163,7 +167,7 @@ lift2d-to-3d-keypoints/
 │   ├── pyproject.toml                 # uv パッケージ管理
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── render.py                      # バッチレンダリングスクリプト
-│   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、PNG出力。feat-015/016）
+│   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力。feat-015/016/017）
 │   └── data/                          # データファイル（gitignore）
 └── tests/                             # テストコード
     └── results/                       # テスト結果保存先
@@ -380,3 +384,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-014**: ピンホール3DGSレンダリング（PNG出力、GT比較）（中止。feat-015 に作り直し）
 - **feat-015**: ピンホール3DGSレンダリング（PNG出力、GT比較）（2026-06-14完了、`render_keypoints.py` を3DGSレンダリングのみに作り直し、`--camera`/`--near-plane`/`--output`/`--background`）
 - **feat-016**: キーポイントのオクルージョン（深度による前後判定）（2026-06-14完了、`render_keypoints.py` に人体キーポイント（C3D, Halpe26 先頭フレーム）重ね描き＋深度比較によるオクルージョンを追加。`c3d_path`必須引数・`--no-occlusion`・`--occlusion-margin`、`render_image` に `return_depth` 追加）
+- **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）（2026-06-14完了、C3D全フレーム描画。`load_c3d_all_frames`/`start_ffmpeg` 追加、背景レンダリングをループ前1回計算で共有。`--output-dir`/`--start-frame`/`--end-frame`/`--mp4`/`--mp4-fps`、`--output` 廃止）

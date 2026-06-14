@@ -4,6 +4,18 @@
 
 ### 2026-06-14
 
+- **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）
+  - `phase4/render_keypoints.py` を、C3Dの先頭フレーム1枚のみから**全フレーム**（または `--start-frame`/`--end-frame` で指定した範囲、両端含む）の描画に拡張。連番PNG（`frame_<C3Dフレーム番号:06d>.png`）と MP4 を出力
+  - `load_c3d_first_frame` を `load_c3d_all_frames`（全フレーム読み込み、`(labels, frames_data, point_rate)` を返す）に置き換え。`point_rate` は `getattr`+`try/except` で安全取得し取得不能時は `0.0`
+  - 新規関数 `start_ffmpeg`（`render.py` のffmpegパイプ方式を移植。NVENC→libx264フォールバック。fpsは小数のまま `-r` に渡す）
+  - カメラ固定のため背景レンダリング（RGB・深度・α）は**ループ前に1回だけ**計算し全フレームで共有（gsplat呼び出しはフレーム数によらず1回）
+  - `--mp4` 時はffmpegをフレームループ前に起動（不在時はPNGも出さず終了コード1）。各フレームをRGB化して `stdin` に書き込み、`try/finally` でプロセスをクリーンアップ。`stdin.write` の `BrokenPipeError`/`OSError` を捕捉してffmpeg途中終了に対応
+  - MP4 fps決定: `--mp4-fps`（float、小数保持）＞ C3D rate ＞ 30フォールバック（警告）。29.97/59.94 等の非整数rateでも動画の実時間がずれない
+  - CLI変更（破壊的）: 単一PNG用の `--output` を廃止し連番PNG用の `--output-dir`（既定 `./data/keypoints_<カメラ名>/`）に置換。`--start-frame`/`--end-frame`/`--mp4`/`--mp4-fps` を追加。`allow_abbrev=False` で旧 `--output` の前方一致誤マッチを防止（1フレームだけ確認したい場合は `--start-frame N --end-frame N` で代替）
+  - 新規依存なし。`render.py` 非改変
+  - テスト: `tests/test_feat017_all_frames.py` 新規13件、`tests/test_feat015_render.py` のスタブを `load_c3d_all_frames` 署名・`--output-dir` に追従修正（全99件成功、1件は実データなしでskip）
+  - Codexレビュー3サイクルで高1・中6を解消（fpsのfloat保持・point_rate取得の堅牢化・MoSCoW矛盾・ffmpeg不在時の挙動統一・プロセスクリーンアップ）。手動テスト（実機GPU）で全フレームの連番PNG/MP4出力を確認
+
 - **feat-016**: キーポイントのオクルージョン（深度による前後判定）
   - `phase4/render_keypoints.py` を拡張し、3DGSレンダリング背景に人体キーポイント（C3D, Halpe26）の先頭フレーム1枚を点＋ボーンで重ね描き。深度比較で前後関係（オクルージョン）を反映し、手前の3DGSに隠れる点・ボーンを隠蔽
   - `render_image` に `return_depth` 引数を追加（既定 False で feat-015 と同一挙動の後方互換）。True 時は `render_mode="RGB+ED"` で `(bgr, depth_map, alpha_map)` を返す

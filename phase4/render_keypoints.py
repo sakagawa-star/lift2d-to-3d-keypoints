@@ -1,21 +1,25 @@
-"""ピンホール3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、PNG出力）
+"""ピンホール3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、連番PNG/MP4出力）
 
 指定した1台のカメラ視点で 3DGS点群（PLY）を gsplat の古典ピンホール経路で
-レンダリングし、その背景画像に人体3Dキーポイント（C3D, Halpe26）の先頭フレーム1枚を
-投影して点＋ボーンで重ね描きする。その際、3DGSの深度マップと各キーポイントのカメラ深度を
-比較して前後関係（オクルージョン）を反映し、カメラ手前の3DGS（障害物）に隠れる
-キーポイント・ボーンを隠蔽する。キャリブレーション（R, t, K）の妥当性を目視検証する用途。
+レンダリングし、その背景画像に人体3Dキーポイント（C3D, Halpe26）を全フレーム
+（または --start-frame/--end-frame で指定した範囲）投影して点＋ボーンで重ね描きする。
+その際、3DGSの深度マップと各キーポイントのカメラ深度を比較して前後関係（オクルージョン）を
+反映し、カメラ手前の3DGS（障害物）に隠れるキーポイント・ボーンを隠蔽する。
+カメラは固定のため背景レンダリング（RGB・深度・α）は1回だけ計算し全フレームで共有する。
+キャリブレーション（R, t, K）の妥当性を時系列（動画）で目視検証する用途。
 
 入力（Blenderを経由せず元データを直読み）:
   - PLY : LCC Studio製3DGS（ネイティブ座標＝キャリブレーション座標、Z-up・メートル）
   - TOML: Pose2Simキャリブ（OpenCV規約 world-to-camera、複数カメラ）
-  - C3D : 人体キーポイント（Halpe26、mm。先頭フレームのみ使用）
+  - C3D : 人体キーポイント（Halpe26、mm。全フレーム使用）
 
 実行は phase4 venv で行う（torch/gsplat が必要）:
   TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
       data/Blender/point_cloud.ply data/Blender/Config_scene.toml \\
       data/Blender/keypoints.c3d \\
-      --camera cam41520554 --near-plane 0.5 --output /tmp/keypoints.png
+      --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+
+1フレームだけ確認したい場合は --start-frame N --end-frame N で範囲を1枚に絞る。
 """
 
 import argparse
@@ -201,16 +205,19 @@ def render_image(
 # === C3D読み込み・キーポイント投影・オクルージョン判定・描画 ===
 
 
-def load_c3d_first_frame(c3d_path: str) -> tuple[list[str], np.ndarray, np.ndarray]:
-    """C3Dを開き、先頭フレームのみ読んで (labels, data, residual) を返す。
+def load_c3d_all_frames(c3d_path: str) -> tuple[list[str], list[dict], float]:
+    """C3Dを開き、全フレームを読んで (labels, frames_data, point_rate) を返す。
 
     Args:
         c3d_path: C3Dファイルパス
 
     Returns:
-        labels:   マーカー名リスト（strip済み）
-        data:     (n_markers, 3) 先頭フレーム生座標（mm）
-        residual: (n_markers,) py-c3d の points[:,3]。residual < 0 は無効サンプル
+        labels:      マーカー名リスト（strip済み）
+        frames_data: フレームごとの dict のリスト。各要素:
+            {"frame_no": int, "data": (n_markers,3) float64 mm,
+             "residual": (n_markers,) float64}（residual < 0 は無効サンプル）
+        point_rate:  C3D rate [Hz]（float）。取得不能（None・非数値）なら 0.0。
+            丸めず小数のまま保持する（MP4 fps の実時間一致のため）
 
     Raises:
         ValueError: フレームが0件のとき
@@ -220,13 +227,23 @@ def load_c3d_first_frame(c3d_path: str) -> tuple[list[str], np.ndarray, np.ndarr
     with open(c3d_path, "rb") as f:
         reader = c3d.Reader(f)
         labels = [label.strip() for label in reader.point_labels]
-        for _frame_no, points, _analog in reader.read_frames():
-            # 最初の1フレームだけ取り出して即終了（ジェネレータを全消費しない）
-            data = np.asarray(points[:, :3], dtype=np.float64)
-            residual = np.asarray(points[:, 3], dtype=np.float64)
-            return labels, data, residual
+        # point_rate は None・欠損・非数値があり得るため安全に正規化（例外を投げない）
+        raw_rate = getattr(reader, "point_rate", None)
+        try:
+            point_rate = float(raw_rate)
+        except (TypeError, ValueError):
+            point_rate = 0.0
+        frames_data: list[dict] = []
+        for frame_no, points, _analog in reader.read_frames():
+            frames_data.append({
+                "frame_no": int(frame_no),
+                "data": np.asarray(points[:, :3], dtype=np.float64),
+                "residual": np.asarray(points[:, 3], dtype=np.float64),
+            })
 
-    raise ValueError(f"C3Dにフレームがありません: {c3d_path}")
+    if not frames_data:
+        raise ValueError(f"C3Dにフレームがありません: {c3d_path}")
+    return labels, frames_data, point_rate
 
 
 def c3d_to_calib(points_mm: np.ndarray) -> np.ndarray:
@@ -406,24 +423,85 @@ def draw_overlay(
     return img
 
 
+def start_ffmpeg(output_dir: str, width: int, height: int, fps: float):
+    """rawvideo(rgb24) を受け取りMP4を書き出す ffmpeg プロセスを起動して返す。
+
+    render.py の方式を移植。NVENC が使えれば h264_nvenc、なければ libx264 にフォールバックする。
+    fps は float のまま `-r` に渡す（29.97 等の非整数を丸めず実時間を保つ）。
+
+    Args:
+        output_dir: 出力ディレクトリ（MP4は <output_dir>/output.mp4）
+        width, height: フレーム解像度
+        fps: フレームレート [Hz]（小数可）
+
+    Returns:
+        (proc, mp4_path): subprocess.Popen と MP4出力パス
+
+    Raises:
+        FileNotFoundError: ffmpeg が見つからないとき
+    """
+    import shutil
+    import subprocess
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin is None:
+        raise FileNotFoundError("ffmpegが見つかりません")
+
+    # NVENC の利用可能性を確認
+    result = subprocess.run(
+        [ffmpeg_bin, "-hide_banner", "-encoders"],
+        capture_output=True, text=True
+    )
+    use_nvenc = "h264_nvenc" in result.stdout
+    encoder = "h264_nvenc" if use_nvenc else "libx264"
+    print(f"MP4エンコーダ: {encoder}")
+
+    mp4_path = os.path.join(output_dir, "output.mp4")
+    ffmpeg_cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-s", f"{width}x{height}",
+        "-r", f"{fps}",
+        "-i", "pipe:0",
+        "-c:v", encoder,
+        "-pix_fmt", "yuv420p",
+        "-loglevel", "error",
+        mp4_path,
+    ]
+    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    return proc, mp4_path
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="ピンホール3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、PNG出力）"
+        description="ピンホール3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、連番PNG/MP4出力）",
+        # 前方一致の短縮を禁止。廃止した --output が --output-dir に化けるのを防ぎ、明示的にエラーにする
+        allow_abbrev=False,
     )
     parser.add_argument("ply_path", help="3DGS PLYファイルパス")
     parser.add_argument("toml_path", help="キャリブレーションTOMLパス")
-    parser.add_argument("c3d_path", help="人体キーポイントC3Dパス（Halpe26、先頭フレームを使用）")
+    parser.add_argument("c3d_path", help="人体キーポイントC3Dパス（Halpe26、全フレームを使用）")
     parser.add_argument("--camera", required=True, help="TOML内の対象カメラ名")
     parser.add_argument("--near-plane", type=float, default=0.1,
                         help="near クリップ距離[m]（floater除去用、default: 0.1）")
-    parser.add_argument("--output", default=None,
-                        help="出力PNGパス（default: ./data/keypoints_<カメラ名>.png）")
+    parser.add_argument("--output-dir", default=None,
+                        help="連番PNG出力ディレクトリ（default: ./data/keypoints_<カメラ名>/）")
     parser.add_argument("--background", type=float, nargs=3, default=[0.0, 0.0, 0.0],
                         help="背景色 RGB [0-1] (default: 0 0 0)")
     parser.add_argument("--no-occlusion", action="store_true",
                         help="オクルージョン無効（全キーポイントを手前扱いで描画＝旧2D重ね描き。比較用）")
     parser.add_argument("--occlusion-margin", type=float, default=OCCLUSION_MARGIN,
                         help=f"深度マージン[m]（3DGSよりこの値以上奥なら隠す、default: {OCCLUSION_MARGIN}）")
+    parser.add_argument("--start-frame", type=int, default=None,
+                        help="描画開始C3Dフレーム番号（この番号を含む、省略時は最小フレーム）")
+    parser.add_argument("--end-frame", type=int, default=None,
+                        help="描画終了C3Dフレーム番号（この番号を含む、省略時は最大フレーム）")
+    parser.add_argument("--mp4", action="store_true",
+                        help="連番PNGに加えてMP4動画も出力する")
+    parser.add_argument("--mp4-fps", type=float, default=None,
+                        help="MP4フレームレート（小数可、default: C3D rate）")
     return parser
 
 
@@ -439,16 +517,29 @@ def main(argv=None) -> int:
         return 1
     print(f"対象カメラ: {cam['name']} ({cam['width']}x{cam['height']})")
 
-    # C3Dロード・Halpe26抽出・キャリブ座標変換（重いPLY/torchロード前に検証）
-    print(f"C3D読み込み中（先頭フレーム）: {args.c3d_path}")
+    # C3Dロード（全フレーム）・Halpe26ラベル存在チェック（重いPLY/torchロード前に検証）
+    print(f"C3D読み込み中（全フレーム）: {args.c3d_path}")
     try:
-        labels, c3d_data, residual = load_c3d_first_frame(args.c3d_path)
-        kpts_mm, valid = extract_halpe26(labels, c3d_data, residual)
+        labels, frames_data, point_rate = load_c3d_all_frames(args.c3d_path)
+        # Halpe26ラベルの有無はC3D全体で固定のため、先頭フレームで一度だけ検証する
+        # （ラベル不足なら全フレームで失敗するので、重い処理の前に弾く）
+        extract_halpe26(labels, frames_data[0]["data"], frames_data[0]["residual"])
     except ValueError as e:
         print(e, file=sys.stderr)
         return 1
-    kpts_calib = c3d_to_calib(kpts_mm)
-    print(f"Halpe26: 有効 {int(valid.sum())}/26 点")
+    total_frames = len(frames_data)
+    print(f"C3D: {total_frames} フレーム, rate={point_rate} Hz")
+
+    # フレーム範囲フィルタ（C3Dフレーム番号ベース、両端含む。render.py と同方式）
+    if args.start_frame is not None or args.end_frame is not None:
+        start = args.start_frame if args.start_frame is not None else -float("inf")
+        end = args.end_frame if args.end_frame is not None else float("inf")
+        frames_data = [fr for fr in frames_data if start <= fr["frame_no"] <= end]
+        if not frames_data:
+            print(f"エラー: 指定範囲 (start={args.start_frame}, end={args.end_frame}) に"
+                  f"該当するフレームがありません", file=sys.stderr)
+            return 1
+        print(f"フレーム範囲: {total_frames} フレーム中 {len(frames_data)} フレームを対象")
 
     # PLY読み込み（render.py は torch を top-level import するため関数内 import）
     from render import load_ply, print_ply_summary
@@ -457,56 +548,117 @@ def main(argv=None) -> int:
     gaussians = load_ply(args.ply_path)
     print_ply_summary(args.ply_path, gaussians)
 
-    output = args.output if args.output else f"./data/keypoints_{cam['name']}.png"
+    output_dir = args.output_dir if args.output_dir else f"./data/keypoints_{cam['name']}"
     occlusion = not args.no_occlusion
 
-    # レンダリング（オクルージョン時のみ深度・αを取得）
-    print(f"\nレンダリング中（near_plane={args.near_plane}, "
+    # 背景レンダリング（カメラ固定のため全フレームで共有。1回のみ実行）
+    print(f"\n背景レンダリング中（near_plane={args.near_plane}, "
           f"occlusion={'ON' if occlusion else 'OFF'}）...")
     start_time = time.time()
 
-    pts2d = project_keypoints(kpts_calib, cam)
     if occlusion:
-        bgr, depth_map, alpha_map = render_image(
+        bgr_bg, depth_map, alpha_map = render_image(
             gaussians, cam, args.near_plane, tuple(args.background), return_depth=True
         )
-        depth_cam = compute_keypoint_depth(kpts_calib, cam)
-        kp_visible = compute_visibility(
-            pts2d, depth_cam, valid, depth_map, alpha_map,
-            args.occlusion_margin, args.near_plane,
-        )
-        print(f"可視キーポイント: {int((valid & kp_visible).sum())}/26 点")
     else:
-        bgr = render_image(
+        bgr_bg = render_image(
             gaussians, cam, args.near_plane, tuple(args.background)
         )
         depth_map = alpha_map = None
-        kp_visible = np.ones(26, dtype=bool)
 
-    overlay = draw_overlay(
-        bgr, kpts_calib, pts2d, valid, kp_visible, cam,
-        depth_map, alpha_map, args.occlusion_margin, args.near_plane,
-        occlusion=occlusion,
-    )
+    # 出力ディレクトリ作成
+    os.makedirs(output_dir, exist_ok=True)
 
-    # 出力ディレクトリ作成（カレント直下出力時の makedirs("") を防ぐため空dirnameをガード）
-    d = os.path.dirname(output)
-    if d:
-        os.makedirs(d, exist_ok=True)
+    # MP4出力時は ffmpeg をフレームループ前に起動（不在ならPNGも出さず終了）
+    ffmpeg_proc = None
+    mp4_path = None
+    if args.mp4:
+        if args.mp4_fps is not None:
+            fps = float(args.mp4_fps)
+        elif point_rate and point_rate > 0:
+            fps = point_rate
+        else:
+            fps = 30.0
+            print("警告: C3D rate を取得できないため MP4 fps=30 を使用", file=sys.stderr)
+        try:
+            ffmpeg_proc, mp4_path = start_ffmpeg(
+                output_dir, cam["width"], cam["height"], fps
+            )
+        except FileNotFoundError as e:
+            print(f"エラー: {e}", file=sys.stderr)
+            return 1
+        print(f"MP4出力: {mp4_path} (fps={fps})")
 
-    # PNG保存。cv2.imwrite は False 返却（権限・エンコード失敗等）と cv2.error 送出
-    # （不正な拡張子・拡張子なし等）の2系統で失敗しうるため両方を扱う
+    # フレームループ。ffmpeg起動済みならクリーンアップを保証するため try/finally で囲む
+    rc = 0
     try:
-        ok = cv2.imwrite(output, overlay)
-    except cv2.error as e:
-        print(f"エラー: PNGの保存に失敗しました: {output}: {e}", file=sys.stderr)
-        return 1
-    if not ok:
-        print(f"エラー: PNGの保存に失敗しました: {output}", file=sys.stderr)
-        return 1
+        n = len(frames_data)
+        for i, fr in enumerate(frames_data):
+            kpts_mm, valid = extract_halpe26(labels, fr["data"], fr["residual"])
+            kpts_calib = c3d_to_calib(kpts_mm)
+            pts2d = project_keypoints(kpts_calib, cam)
+            if occlusion:
+                depth_cam = compute_keypoint_depth(kpts_calib, cam)
+                kp_visible = compute_visibility(
+                    pts2d, depth_cam, valid, depth_map, alpha_map,
+                    args.occlusion_margin, args.near_plane,
+                )
+            else:
+                kp_visible = np.ones(26, dtype=bool)
+
+            overlay = draw_overlay(
+                bgr_bg, kpts_calib, pts2d, valid, kp_visible, cam,
+                depth_map, alpha_map, args.occlusion_margin, args.near_plane,
+                occlusion=occlusion,
+            )
+
+            # 連番PNG保存。cv2.imwrite は False 返却と cv2.error 送出の2系統で失敗しうる
+            png_path = os.path.join(output_dir, f"frame_{fr['frame_no']:06d}.png")
+            try:
+                ok = cv2.imwrite(png_path, overlay)
+            except cv2.error as e:
+                print(f"エラー: PNGの保存に失敗しました: {png_path}: {e}", file=sys.stderr)
+                rc = 1
+                break
+            if not ok:
+                print(f"エラー: PNGの保存に失敗しました: {png_path}", file=sys.stderr)
+                rc = 1
+                break
+
+            # MP4: overlay は BGR。ffmpeg には rgb24 を渡すため RGB化して書き込む
+            if ffmpeg_proc is not None:
+                rgb = overlay[:, :, ::-1].copy()
+                try:
+                    ffmpeg_proc.stdin.write(rgb.tobytes())
+                except (BrokenPipeError, OSError):
+                    stderr = ffmpeg_proc.stderr.read().decode(errors="replace")
+                    print(f"エラー: ffmpegが途中終了しました:\n{stderr}", file=sys.stderr)
+                    rc = 1
+                    break
+
+            suffix = " -> mp4" if ffmpeg_proc is not None else ""
+            print(f"  [{i + 1}/{n}] {png_path}{suffix}")
+    finally:
+        # ffmpegプロセスのクリーンアップ（PNG失敗・write失敗・想定外例外の全経路で実行）
+        if ffmpeg_proc is not None:
+            if ffmpeg_proc.stdin and not ffmpeg_proc.stdin.closed:
+                try:
+                    ffmpeg_proc.stdin.close()
+                except OSError:
+                    pass
+            ffmpeg_proc.wait()
+            if rc == 0 and ffmpeg_proc.returncode != 0:
+                stderr = ffmpeg_proc.stderr.read().decode(errors="replace")
+                print(f"エラー: ffmpegエラー:\n{stderr}", file=sys.stderr)
+                rc = 1
+
+    if rc != 0:
+        return rc
 
     elapsed = time.time() - start_time
-    print(f"\n完了: {output} ({elapsed:.1f}秒)")
+    print(f"\n完了: {output_dir} ({len(frames_data)} フレーム, {elapsed:.1f}秒)")
+    if mp4_path is not None:
+        print(f"MP4保存: {mp4_path}")
     return 0
 
 

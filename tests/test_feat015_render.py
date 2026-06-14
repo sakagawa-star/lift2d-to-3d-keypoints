@@ -58,8 +58,9 @@ def _install_render_stub(monkeypatch):
 
     render.py はルートvenv（pytest）では import できないため、main 内の
     `from render import load_ply, print_ply_summary` がダミーを使うようにする。
-    CUDA依存の render_image・phase4のみの load_c3d_first_frame もスタブ化し、
-    PNG保存直前まで到達させる（feat-016 で c3d_path 必須化・return_depth 追加に対応）。
+    CUDA依存の render_image・phase4のみの load_c3d_all_frames もスタブ化し、
+    PNG保存直前まで到達させる（feat-016 で c3d_path 必須化・return_depth 追加、
+    feat-017 で全フレーム化・連番PNG出力に対応）。
     """
     dummy = types.ModuleType("render")
     dummy.load_ply = lambda path: {"means": "stub"}
@@ -79,14 +80,18 @@ def _install_render_stub(monkeypatch):
 
     monkeypatch.setattr("render_keypoints.render_image", _stub_render_image)
 
-    # C3Dスタブ: Halpe26 全26マーカーを原点付近に置き、全て有効（residual>=0）
+    # C3Dスタブ: Halpe26 全26マーカーを原点付近に置き、全て有効（residual>=0）。
+    # feat-017: (labels, frames_data, point_rate) を返す。先頭1フレームのみ。
     def _stub_load_c3d(path):
         labels = list(HALPE26_NAMES)
-        data = np.zeros((26, 3), dtype=np.float64)      # mm
-        residual = np.zeros(26, dtype=np.float64)
-        return labels, data, residual
+        frames_data = [{
+            "frame_no": 1,
+            "data": np.zeros((26, 3), dtype=np.float64),      # mm
+            "residual": np.zeros(26, dtype=np.float64),
+        }]
+        return labels, frames_data, 30.0
 
-    monkeypatch.setattr("render_keypoints.load_c3d_first_frame", _stub_load_c3d)
+    monkeypatch.setattr("render_keypoints.load_c3d_all_frames", _stub_load_c3d)
 
 
 # ========================================
@@ -170,7 +175,7 @@ class TestMainErrorPaths:
         monkeypatch.setattr(cv2, "imwrite", lambda path, img: False)
         toml = _write_synth_toml(tmp_path)
         rc = main(["dummy.ply", toml, "dummy.c3d", "--camera", "camA",
-                   "--output", str(tmp_path / "out.png")])
+                   "--output-dir", str(tmp_path / "out")])
         assert rc == 1
         assert "保存に失敗" in capsys.readouterr().err
 
@@ -184,7 +189,7 @@ class TestMainErrorPaths:
         monkeypatch.setattr(cv2, "imwrite", _raise)
         toml = _write_synth_toml(tmp_path)
         rc = main(["dummy.ply", toml, "dummy.c3d", "--camera", "camA",
-                   "--output", str(tmp_path / "out.badext")])
+                   "--output-dir", str(tmp_path / "out")])
         assert rc == 1
         assert "保存に失敗" in capsys.readouterr().err
 
@@ -195,7 +200,7 @@ class TestMainErrorPaths:
         """
         toml = _write_synth_toml(tmp_path)
         rc = main(["dummy.ply", toml, "dummy.c3d", "--camera", "no_such",
-                   "--output", str(tmp_path / "out.png")])
+                   "--output-dir", str(tmp_path / "out")])
         assert rc == 1
         assert "camA" in capsys.readouterr().err  # 利用可能カメラ名一覧
 
