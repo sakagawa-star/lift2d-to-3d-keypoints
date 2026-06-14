@@ -20,6 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "phase4"))
 
 from render_keypoints import (
+    HALPE26_NAMES,
     camera_to_viewmat,
     load_cameras_toml,
     main,
@@ -57,17 +58,35 @@ def _install_render_stub(monkeypatch):
 
     render.py はルートvenv（pytest）では import できないため、main 内の
     `from render import load_ply, print_ply_summary` がダミーを使うようにする。
-    CUDA依存の render_image もスタブ化し、PNG保存直前まで到達させる。
+    CUDA依存の render_image・phase4のみの load_c3d_first_frame もスタブ化し、
+    PNG保存直前まで到達させる（feat-016 で c3d_path 必須化・return_depth 追加に対応）。
     """
     dummy = types.ModuleType("render")
     dummy.load_ply = lambda path: {"means": "stub"}
     dummy.print_ply_summary = lambda path, gaussians: None
     monkeypatch.setitem(sys.modules, "render", dummy)
-    monkeypatch.setattr(
-        "render_keypoints.render_image",
-        lambda gaussians, cam, near_plane, background=(0.0, 0.0, 0.0):
-            np.zeros((1080, 1920, 3), dtype=np.uint8),
-    )
+
+    H, W = 1080, 1920
+
+    def _stub_render_image(gaussians, cam, near_plane,
+                           background=(0.0, 0.0, 0.0), return_depth=False):
+        bgr = np.zeros((H, W, 3), dtype=np.uint8)
+        if return_depth:
+            depth_map = np.full((H, W), 100.0, dtype=np.float32)
+            alpha_map = np.zeros((H, W), dtype=np.float32)  # 全画素 3DGSなし扱い
+            return bgr, depth_map, alpha_map
+        return bgr
+
+    monkeypatch.setattr("render_keypoints.render_image", _stub_render_image)
+
+    # C3Dスタブ: Halpe26 全26マーカーを原点付近に置き、全て有効（residual>=0）
+    def _stub_load_c3d(path):
+        labels = list(HALPE26_NAMES)
+        data = np.zeros((26, 3), dtype=np.float64)      # mm
+        residual = np.zeros(26, dtype=np.float64)
+        return labels, data, residual
+
+    monkeypatch.setattr("render_keypoints.load_c3d_first_frame", _stub_load_c3d)
 
 
 # ========================================
@@ -150,7 +169,7 @@ class TestMainErrorPaths:
         _install_render_stub(monkeypatch)
         monkeypatch.setattr(cv2, "imwrite", lambda path, img: False)
         toml = _write_synth_toml(tmp_path)
-        rc = main(["dummy.ply", toml, "--camera", "camA",
+        rc = main(["dummy.ply", toml, "dummy.c3d", "--camera", "camA",
                    "--output", str(tmp_path / "out.png")])
         assert rc == 1
         assert "保存に失敗" in capsys.readouterr().err
@@ -164,7 +183,7 @@ class TestMainErrorPaths:
 
         monkeypatch.setattr(cv2, "imwrite", _raise)
         toml = _write_synth_toml(tmp_path)
-        rc = main(["dummy.ply", toml, "--camera", "camA",
+        rc = main(["dummy.ply", toml, "dummy.c3d", "--camera", "camA",
                    "--output", str(tmp_path / "out.badext")])
         assert rc == 1
         assert "保存に失敗" in capsys.readouterr().err
@@ -175,7 +194,7 @@ class TestMainErrorPaths:
         select_camera が from render import より前なので render スタブ不要。
         """
         toml = _write_synth_toml(tmp_path)
-        rc = main(["dummy.ply", toml, "--camera", "no_such",
+        rc = main(["dummy.ply", toml, "dummy.c3d", "--camera", "no_such",
                    "--output", str(tmp_path / "out.png")])
         assert rc == 1
         assert "camA" in capsys.readouterr().err  # 利用可能カメラ名一覧

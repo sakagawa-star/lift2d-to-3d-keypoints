@@ -1,0 +1,45 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 36 items
+
+tests/test_feat016_keypoints.py::TestC3dToCalib::test_single_point PASSED [  2%]
+tests/test_feat016_keypoints.py::TestC3dToCalib::test_array_shape_preserved PASSED [  5%]
+tests/test_feat016_keypoints.py::TestC3dToCalib::test_multidim PASSED    [  8%]
+tests/test_feat016_keypoints.py::TestComputeKeypointDepth::test_identity_rotation PASSED [ 11%]
+tests/test_feat016_keypoints.py::TestComputeKeypointDepth::test_matches_manual_rotation PASSED [ 13%]
+tests/test_feat016_keypoints.py::TestExtractHalpe26::test_reorders_to_halpe26 PASSED [ 16%]
+tests/test_feat016_keypoints.py::TestExtractHalpe26::test_negative_residual_invalid PASSED [ 19%]
+tests/test_feat016_keypoints.py::TestExtractHalpe26::test_nan_coord_invalid PASSED [ 22%]
+tests/test_feat016_keypoints.py::TestExtractHalpe26::test_missing_marker_raises PASSED [ 25%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_invalid_false PASSED [ 27%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_behind_camera_false PASSED [ 30%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_nonfinite_depth_false PASSED [ 33%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_out_of_frame_true PASSED [ 36%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_low_alpha_true PASSED [ 38%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_behind_3dgs_false PASSED [ 41%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_in_front_true PASSED [ 44%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_alpha_before_depth PASSED [ 47%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_boundary_col_equals_width PASSED [ 50%]
+tests/test_feat016_keypoints.py::TestComputeVisibility::test_rounding_index PASSED [ 52%]
+tests/test_feat016_keypoints.py::TestDrawOverlay::test_no_crash_and_returns_copy PASSED [ 55%]
+tests/test_feat016_keypoints.py::TestDrawOverlay::test_invisible_points_not_drawn PASSED [ 58%]
+tests/test_feat016_keypoints.py::TestDrawOverlay::test_invalid_points_not_drawn PASSED [ 61%]
+tests/test_feat016_keypoints.py::TestProjectKeypointsReal::test_projects_to_2d PASSED [ 63%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_identity_rotation PASSED [ 66%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_bottom_row PASSED [ 69%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_rotation_matches_rodrigues PASSED [ 72%]
+tests/test_feat015_render.py::TestCameraToViewmat::test_rotation_is_orthonormal PASSED [ 75%]
+tests/test_feat015_render.py::TestSelectCamera::test_returns_existing PASSED [ 77%]
+tests/test_feat015_render.py::TestSelectCamera::test_missing_raises_with_available PASSED [ 80%]
+tests/test_feat015_render.py::TestLoadCamerasTomlSynth::test_loads_only_matrix_tables PASSED [ 83%]
+tests/test_feat015_render.py::TestMainErrorPaths::test_imwrite_false_returns_1 PASSED [ 86%]
+tests/test_feat015_render.py::TestMainErrorPaths::test_imwrite_cv2error_returns_1 PASSED [ 88%]
+tests/test_feat015_render.py::TestMainErrorPaths::test_missing_camera_returns_1 PASSED [ 91%]
+tests/test_feat015_render.py::TestRealData::test_loads_five_cameras PASSED [ 94%]
+tests/test_feat015_render.py::TestRealData::test_select_existing PASSED  [ 97%]
+tests/test_feat015_render.py::TestRealData::test_select_missing_raises PASSED [100%]
+
+============================== 36 passed in 0.12s ==============================

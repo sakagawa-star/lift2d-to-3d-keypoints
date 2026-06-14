@@ -4,6 +4,17 @@
 
 ### 2026-06-14
 
+- **feat-016**: キーポイントのオクルージョン（深度による前後判定）
+  - `phase4/render_keypoints.py` を拡張し、3DGSレンダリング背景に人体キーポイント（C3D, Halpe26）の先頭フレーム1枚を点＋ボーンで重ね描き。深度比較で前後関係（オクルージョン）を反映し、手前の3DGSに隠れる点・ボーンを隠蔽
+  - `render_image` に `return_depth` 引数を追加（既定 False で feat-015 と同一挙動の後方互換）。True 時は `render_mode="RGB+ED"` で `(bgr, depth_map, alpha_map)` を返す
+  - 新規関数: `load_c3d_first_frame`（先頭フレームのみ）/`c3d_to_calib`（(px,py,pz)mm→(pz,px,py)m）/`extract_halpe26`（residual・NaNで有効判定）/`project_keypoints`（歪みなし投影）/`compute_keypoint_depth`/`compute_visibility`/`draw_overlay`
+  - `compute_visibility` は valid→深度有効性（finite かつ >near_plane の背面ガード）→画像外→α→深度比較の順で判定。α判定を深度比較より先に置き低α画素の不安定な深度を回避。背景判定はαマップ（accumulation, 内部閾値0.5）で行う
+  - ボーンは線分を `BONE_SAMPLES=24` 分割して部分隠蔽（障害物を横切るボーンが途中で切れる）。色分けは被験者の解剖学的左右（右=赤/左=青/体幹・顔=緑）、点=黄
+  - CLI: `c3d_path` を必須位置引数として追加（feat-015 の旧2引数CLIは意図的に廃止）。`--no-occlusion`（深度経路を通さず全点手前描画）/`--occlusion-margin`（既定0.05m）を追加
+  - 新規依存なし（`c3d>=0.6.0` は導入済み）。`render.py` 非改変
+  - テスト: `tests/test_feat016_keypoints.py` 新規23件、`tests/test_feat015_render.py` の main系3テストを新CLI・新スタブ署名に更新（全86件成功）
+  - 手動テスト（実機GPU）でキーポイントの位置・姿勢の妥当性とオクルージョンの効果を目視確認
+
 - **feat-015**: ピンホール3DGSレンダリング（PNG出力、GT比較）
   - `phase4/render_keypoints.py` を3DGSレンダリングのみに作り直し（中止した feat-013 のキーポイント重ね描き・C3D・MP4・dry-run・フレーム範囲機能を全削除）
   - `render_image` を追加（gsplat ピンホール古典経路。`render.py` の `render_frame` と同一の `camera_model="pinhole"`/`with_ut=False`/`packed=True`、歪み・UT・深度なし）

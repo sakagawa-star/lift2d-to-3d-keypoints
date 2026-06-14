@@ -102,11 +102,15 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 # 3. バッチレンダリング（連番PNG + MP4出力）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --mp4
 
-# 4. ピンホール3DGSレンダリング（指定カメラ視点でPNG1枚。GT比較用。feat-015）
-#    PLY + キャリブTOML + --camera を渡す。--near-plane でカメラ至近のfloaterを除去（0.01:黒い靄 → 0.5:鮮明）
+# 4. ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、PNG1枚。feat-015/016）
+#    PLY + キャリブTOML + C3D（Halpe26、先頭フレーム）+ --camera を渡す。
+#    --near-plane でカメラ至近のfloaterを除去（0.01:黒い靄 → 0.5:鮮明）。
+#    深度比較で手前の3DGSに隠れる点・ボーンを隠蔽。--no-occlusion で隠蔽OFF（比較用）、
+#    --occlusion-margin で深度マージン調整（既定0.05m）。
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
-    --camera cam41520554 --near-plane 0.5 --output /tmp/render.png
+    data/Blender/keypoints.c3d \
+    --camera cam41520554 --near-plane 0.5 --output /tmp/keypoints.png
 ```
 
 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:
@@ -159,7 +163,7 @@ lift2d-to-3d-keypoints/
 │   ├── pyproject.toml                 # uv パッケージ管理
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── render.py                      # バッチレンダリングスクリプト
-│   ├── render_keypoints.py            # ピンホール3DGSレンダリング（PNG出力、GT比較。feat-016でキーポイント重ね描き・オクルージョン追加予定）
+│   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、PNG出力。feat-015/016）
 │   └── data/                          # データファイル（gitignore）
 └── tests/                             # テストコード
     └── results/                       # テスト結果保存先
@@ -375,3 +379,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-013**: 3DGSレンダリング画像への3Dキーポイント重ね描き（中止。feat-015/016 に分割して作り直し）
 - **feat-014**: ピンホール3DGSレンダリング（PNG出力、GT比較）（中止。feat-015 に作り直し）
 - **feat-015**: ピンホール3DGSレンダリング（PNG出力、GT比較）（2026-06-14完了、`render_keypoints.py` を3DGSレンダリングのみに作り直し、`--camera`/`--near-plane`/`--output`/`--background`）
+- **feat-016**: キーポイントのオクルージョン（深度による前後判定）（2026-06-14完了、`render_keypoints.py` に人体キーポイント（C3D, Halpe26 先頭フレーム）重ね描き＋深度比較によるオクルージョンを追加。`c3d_path`必須引数・`--no-occlusion`・`--occlusion-margin`、`render_image` に `return_depth` 追加）
