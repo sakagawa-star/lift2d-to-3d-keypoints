@@ -168,6 +168,7 @@ lift2d-to-3d-keypoints/
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── render.py                      # バッチレンダリングスクリプト
 │   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力。feat-015/016/017）
+│   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
 │   └── data/                          # データファイル（gitignore）
 └── tests/                             # テストコード
     └── results/                       # テスト結果保存先
@@ -385,3 +386,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-015**: ピンホール3DGSレンダリング（PNG出力、GT比較）（2026-06-14完了、`render_keypoints.py` を3DGSレンダリングのみに作り直し、`--camera`/`--near-plane`/`--output`/`--background`）
 - **feat-016**: キーポイントのオクルージョン（深度による前後判定）（2026-06-14完了、`render_keypoints.py` に人体キーポイント（C3D, Halpe26 先頭フレーム）重ね描き＋深度比較によるオクルージョンを追加。`c3d_path`必須引数・`--no-occlusion`・`--occlusion-margin`、`render_image` に `return_depth` 追加）
 - **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）（2026-06-14完了、C3D全フレーム描画。`load_c3d_all_frames`/`start_ffmpeg` 追加、背景レンダリングをループ前1回計算で共有。`--output-dir`/`--start-frame`/`--end-frame`/`--mp4`/`--mp4-fps`、`--output` 廃止）
+- **feat-018**: NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応）（2026-06-25完了、`phase4/npz_to_c3d.py` 新規。world(X,Y,Z)m→C3D raw(Y,Z,X)×1000 mm で `c3d_to_calib` 互換。C3Dフレームは1始まり（py-c3d 16bit制約回避）。Blender正立は `UNITS='mm'`/`X_SCREEN='+Z'`/`Y_SCREEN='+Y'`（io_anim_c3d は pose bone ローカル座標+rest行列で描画するため表示鉛直は Y_SCREEN で決まる）。出力は一時ファイル→読み戻し検証→`os.replace` のアトミック確定）

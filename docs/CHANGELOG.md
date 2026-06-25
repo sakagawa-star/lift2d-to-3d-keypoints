@@ -2,6 +2,21 @@
 
 ## リリース履歴
 
+### 2026-06-25
+
+- **feat-018**: NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応）
+  - `phase4/npz_to_c3d.py` を新規作成。2Dキーポイントを3Dにリフトアップした NPZ（`x3d_world` (F,22,3) world座標メートル、`frame_ids`、`joint_names`）を、Blenderの C3D インポートアドオン `io_anim_c3d` で取り込める C3D に変換する CLI（Blender非依存、NumPy + py-c3d 0.6.0）
+  - 座標規約は `render_keypoints.c3d_to_calib`（raw (px,py,pz)mm → (pz,px,py)×0.001 m）と互換。world `(X,Y,Z)` m を C3D raw `(Y,Z,X)×1000` mm で書き出し、読み戻し誤差 6e-8 m
+  - 関節は NPZ の22ラベルをそのまま `POINT:LABELS` に書き出し（Halpe26整形はしない）。`MANUFACTURER:SOFTWARE` は未設定（io_anim_c3d のラベル間引きを回避）
+  - 各点の residual は座標が有限なら 0.0（有効）、NaN/Inf なら -1.0（無効）
+  - C3Dフレーム番号は **1始まり連番（1..F）**。py-c3d 0.6.0 のヘッダ first/last frame が 16bit で、65535超の絶対 `frame_ids`（本データ145599〜）を `set_start_frame` に渡すと読み戻しが破綻するため（実測: first=145595/count=301）。絶対番号はC3Dに保持せず対応をログ出力
+  - Blender正立: `POINT:UNITS='mm'`、`POINT:X_SCREEN='+Z'`/`POINT:Y_SCREEN='+Y'`。io_anim_c3d は pose bone のローカル座標 + +Z向きボーンの rest 行列 `B=Rx(+90)` で描画するため、表示鉛直は `Y_SCREEN` で決まる。`+Y` で表示鉛直 = world鉛直 `Z_w`（恒等表示で正立）
+  - 安全策: 出力パスは拡張子 `.c3d` 必須・入力NPZと同一パスは拒否。書き出しは一時ファイル→py-c3d読み戻し検証（フレーム数・ラベル一致）→`os.replace` のアトミック確定
+  - CLI: `npz_to_c3d.py <npz_path> [--output PATH] [--fps 30.0]`（`allow_abbrev=False`）
+  - 新規依存なし（c3d は既に phase4 で使用）。`render_keypoints.py` 非改変
+  - テスト: `tests/test_feat018_npz_to_c3d.py` 新規12件（座標ラウンドトリップ・メタデータ・出力パス検証・軸解釈・検証エラー）。T-3 は**実物の io_anim_c3d コード + ボーン rest 行列 + 単位換算**で正立を検証（手計算モデルの落とし穴を排除）
+  - Codexレビュー計6サイクル（高: フレーム番号16bit破綻・入力上書き・旧方針残存・world鉛直軸の誤認を解消）。手動テストで Blender 取り込みの正立を確認。**軸設計で2回（`-Y`/`+X`）上下逆を出したが、原因は pose-bone rest 行列の見落とし。実物コード実行＋過去実測の再現で `+Y` を確定**
+
 ### 2026-06-14
 
 - **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）

@@ -22,4 +22,5 @@
 | feat-015 | 機能追加 | ピンホール3DGSレンダリング（PNG出力、GT比較） | Closed |
 | feat-016 | 機能追加 | キーポイントのオクルージョン（深度による前後判定） | Closed |
 | feat-017 | 機能追加 | render_keypoints.py 全フレーム対応（連番PNG + MP4） | Closed |
+| feat-018 | 機能追加 | NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応） | Closed |
 
