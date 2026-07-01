@@ -96,6 +96,13 @@ cd phase4
 #    出力先: --output で指定。省略時は data/<カメラ名>_poses.json
 blender -b data/FPS-camera.blend --python camera_pose.py -- --camera FPSCamera
 
+# 1b. FPS頭部追従カメラのポーズ書き出し（feat-019。アーマチュア＋アンカー＋子カメラ構成の .blend 用）
+#     向きを与える frame_change_post ハンドラは -b で発火しないため、姿勢計算をスクリプトに内蔵。
+#     ヘッドレスでも頭部追従した c2w を出力する。実行は Blender 4.5.5（下記フルパス）。
+#     --camera（必須）、--armature（既定 session001_f145749_world300）、--anchor（既定 Cam_Anchor）、--output
+/home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender -b data/Blender/2D-Lift.blend \
+    --python fps_camera_pose.py -- --camera Cam_FPS --output data/Cam_FPS_poses.json
+
 # 2. バッチレンダリング（dry-run: 画像保存なしで動作確認・速度計測）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --dry-run
 
@@ -166,6 +173,7 @@ lift2d-to-3d-keypoints/
 ├── phase4/                            # gsplatバッチレンダリング（独立した uv 環境）
 │   ├── pyproject.toml                 # uv パッケージ管理
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
+│   ├── fps_camera_pose.py             # FPS頭部追従カメラのポーズ書き出し（ヘッドレスで向きを計算・内蔵。feat-019）
 │   ├── render.py                      # バッチレンダリングスクリプト
 │   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力。feat-015/016/017）
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
@@ -387,3 +395,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-016**: キーポイントのオクルージョン（深度による前後判定）（2026-06-14完了、`render_keypoints.py` に人体キーポイント（C3D, Halpe26 先頭フレーム）重ね描き＋深度比較によるオクルージョンを追加。`c3d_path`必須引数・`--no-occlusion`・`--occlusion-margin`、`render_image` に `return_depth` 追加）
 - **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）（2026-06-14完了、C3D全フレーム描画。`load_c3d_all_frames`/`start_ffmpeg` 追加、背景レンダリングをループ前1回計算で共有。`--output-dir`/`--start-frame`/`--end-frame`/`--mp4`/`--mp4-fps`、`--output` 廃止）
 - **feat-018**: NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応）（2026-06-25完了、`phase4/npz_to_c3d.py` 新規。world(X,Y,Z)m→C3D raw(Y,Z,X)×1000 mm で `c3d_to_calib` 互換。C3Dフレームは1始まり（py-c3d 16bit制約回避）。Blender正立は `UNITS='mm'`/`X_SCREEN='+Z'`/`Y_SCREEN='+Y'`（io_anim_c3d は pose bone ローカル座標+rest行列で描画するため表示鉛直は Y_SCREEN で決まる）。出力は一時ファイル→読み戻し検証→`os.replace` のアトミック確定）
+- **feat-019**: FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応）（2026-07-01完了、`phase4/fps_camera_pose.py` 新規。`camera_pose.py` は温存。向きを与える `frame_change_post` ハンドラが `-b` で発火せず向きが凍結する問題を、Frankfurt平面ベースの姿勢計算を内蔵して解消。ボーンは評価済み depsgraph から取得、アンカー回転適用後 `view_layer.update()` で子カメラへ反映。起動時＋全フレームで構成・縮退・直交・位置/向き整合を検証し違反時 exit(1)。出力は camera_pose.py と同一スキーマ＋原子的書き出し。`--camera`/`--armature`/`--anchor`/`--output`。実行は Blender 4.5.5）

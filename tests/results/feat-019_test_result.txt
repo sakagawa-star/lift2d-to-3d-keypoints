@@ -1,0 +1,50 @@
+# feat-019 テスト結果: fps_camera_pose.py 頭部追従カメラポーズ書き出し
+
+## 1. pytest（bpy/mathutils 非依存の純粋ロジック）
+
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.0.2, pluggy-1.6.0 -- /home/sakagawa/git/lift2d-to-3d-keypoints/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+collecting ... collected 11 items
+
+tests/test_feat019_fps_camera_pose_args.py::TestExtractScriptArgs::test_with_separator PASSED [  9%]
+tests/test_feat019_fps_camera_pose_args.py::TestExtractScriptArgs::test_without_separator PASSED [ 18%]
+tests/test_feat019_fps_camera_pose_args.py::TestExtractScriptArgs::test_separator_at_end PASSED [ 27%]
+tests/test_feat019_fps_camera_pose_args.py::TestExtractScriptArgs::test_multiple_separators PASSED [ 36%]
+tests/test_feat019_fps_camera_pose_args.py::TestDefaultOutputPath::test_default_path PASSED [ 45%]
+tests/test_feat019_fps_camera_pose_args.py::TestParseArgs::test_camera_only_uses_defaults PASSED [ 54%]
+tests/test_feat019_fps_camera_pose_args.py::TestParseArgs::test_armature_anchor_override PASSED [ 63%]
+tests/test_feat019_fps_camera_pose_args.py::TestParseArgs::test_output_override PASSED [ 72%]
+tests/test_feat019_fps_camera_pose_args.py::TestParseArgs::test_missing_camera_exits PASSED [ 81%]
+tests/test_feat019_fps_camera_pose_args.py::TestConstants::test_required_bones PASSED [ 90%]
+tests/test_feat019_fps_camera_pose_args.py::TestConstants::test_default_names PASSED [100%]
+
+============================== 11 passed in 0.14s ==============================
+
+## 2. 統合検証（Blender 4.5.5 ヘッドレス, data/Blender/2D-Lift.blend）
+
+### 2.1 正常系: 全フレーム書き出し
+コマンド: blender -b 2D-Lift.blend --python fps_camera_pose.py -- --camera Cam_FPS
+結果: 'カメラポーズ書き出し完了: ... (250 フレーム)' exit=0
+  - フレーム数 250 = frame_end(250) - frame_start(1) + 1 ✓
+  - 出力スキーマ keys = [c2w, cx, cy, frame, fx, fy, height, width]（camera_pose.py と同一）✓
+  - 位置整合: frame1 pos=(0.0352, -1.0049, 0.1612) が両目中点と一致（裏取り値一致）✓
+  - 向き追従: 前方(-Z)ベクトルが 250 中 240 相異（凍結せず頭部追従）✓
+      frame1   fwd=(-0.0993, 0.9737, -0.2049)
+      frame125 fwd=( 0.1094, 0.9862, -0.1239)
+      frame250 fwd=(-0.0442, 0.9954, -0.0848)
+  - fx=fy=2666.67 (=50/36*1920), cx=960, cy=540, w=1920, h=1080 ✓
+
+### 2.2 異常系（FR-004、いずれも exit=1 + stderr メッセージ）
+  - 存在しないカメラ --camera NoSuchCam:
+      'エラー: オブジェクト 'NoSuchCam' がシーンに見つかりません' + シーン内カメラ一覧 ✓
+  - 存在しないアーマチュア --armature NoSuchArm:
+      'エラー: アーマチュア 'NoSuchArm' がシーンに見つかりません' + 一覧 ✓
+  - 親でないアンカー --anchor point_cloudSplat_Proxy:
+      'エラー: カメラ 'Cam_FPS' の親がアンカー 'point_cloudSplat_Proxy' ではありません (parent=Cam_Anchor)' ✓
+
+## 3. 備考
+  - FR-005（縮退/非直交/NaN・Inf/位置・向き整合）は正常データでは全て素通り（違反なし）。
+  - compute_anchor_rotation_euler の回転は事前裏取りで det=1.0・直交、cam.matrix_world へ厳密反映を確認済み。

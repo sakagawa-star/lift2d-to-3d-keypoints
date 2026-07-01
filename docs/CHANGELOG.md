@@ -2,6 +2,16 @@
 
 ## リリース履歴
 
+### 2026-07-01
+
+- **feat-019**: FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応）
+  - `phase4/fps_camera_pose.py` を新規作成（`camera_pose.py` はコンストレイント駆動 .blend 向けに温存）。FPS風頭部追従カメラの向き（顔の一次視線方向）を各フレームで計算・適用してから `cam.matrix_world` を読み、`blender -b`（ヘッドレス）でも頭部追従した `c2w` を JSON 出力する
+  - 背景: 向きを与える `frame_change_post` ハンドラは .blend に保存されず `-b` の別プロセスで発火しないため、位置は追従するが向きが凍結した `c2w` が出ていた（対象 `data/Blender/2D-Lift.blend` で裏取り確定）。同じ計算をスクリプトに内蔵して解消
+  - 姿勢計算（Frankfurt平面ベース）: 耳中点→鼻を両目軸に直交化した前方 `f`、`u=f×r0`（頭頂 `Head-Neck` で符号確定）、`b=-f`、`r=u×b`、`rot=Matrix((r,u,b)).transposed()` を `to_euler()`。ボーン位置は評価済み depsgraph（`arm.evaluated_get`）から取得、アンカー回転適用後に `view_layer.update()` で子カメラへ反映
+  - 検証（FR-004/FR-005）: カメラ/アーマチュア/アンカーの存在・型、`cam.parent==anchor`、カメラのローカル回転ゼロを起動時にチェック。各フレームで縮退・行列式・直交性・NaN/Inf、および `cam.matrix_world` の位置=両目中点・向き=計算値の整合を検証し、違反時は JSON を書かず `exit(1)`
+  - 出力は既存 `camera_pose.py` と同一スキーマ（`frame,c2w,fx,fy,cx,cy,width,height`）。原子的書き出し（一時ファイル→`os.replace`）。CLI: `--camera`（必須）/`--armature`/`--anchor`/`--output`
+  - 実行環境は Blender 4.5.5 LTS（`/home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender`）
+
 ### 2026-06-25
 
 - **feat-018**: NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応）
