@@ -4,6 +4,15 @@
 
 ### 2026-07-02
 
+- **feat-021**: render_keypoints.py 欠損マーカー許容（22点C3D対応）
+  - `phase4/render_keypoints.py` を、C3D に Halpe26 の全26マーカーが揃っていなくても実行できるように変更。リフトアップ推定由来の22点C3D（足先6点なし、Spine/Thorax あり。`npz_to_c3d.py` 出力形式）が「Halpe26マーカーが不足しています」の ValueError で描画できなかった問題を解消
+  - 既知マーカーを `KEYPOINT_NAMES`（Halpe26 26点 + Spine/Thorax の計28点）に拡張。C3Dに存在しない既知マーカーは `valid=False` として点・ボーンを描画スキップ（`extract_halpe26` → `extract_keypoints` にリネーム。例外を投げない）
+  - 体幹ボーンは C3D の構成で切り替え（`build_skeleton(present)` 新設、`HALPE26_SKELETON` 定数は廃止）: Spine/Thorax 両方あれば Neck–Thorax–Spine–Hip の3本、片方のみは経由2本、無ければ従来の Neck–Hip 直結。体幹ボーンは従来と同位置に挿入し描画順を維持（26点C3Dの描画内容は変更前と同一。pytest でスケルトン完全一致・extract同値性を検証）
+  - 起動時にマーカー構成を報告（`キーポイント: N/28 マーカーを描画対象とします` + 欠損一覧）。既知マーカー0個の場合のみ PLY/torch ロード前にエラー終了（終了コード1）
+  - CLI引数は無変更。`draw_overlay` に `skeleton` 引数を追加
+  - テスト: `tests/test_feat021_flexible_markers.py` 新規9件（extract 22点/26点・build_skeleton 各構成・描画順・FR-005 main早期エラー経路）。`tests/test_feat016_keypoints.py` を新APIに追随
+  - Codexレビュー1サイクル（中: 既存テスト追随のスコープ漏れ・FR-005テスト欠如・バイト一致基準の検証手段を解消）。手動テストで22点C3D実データの完走・描画を確認
+
 - **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト
   - `phase4/filter_c3d.py` を新規作成。リフトアップ推定由来のC3Dキーポイント（フレーム間ジッターで"カクカク"）を、2次Butterworthローパス + `scipy.signal.filtfilt`（実効4次・ゼロ位相）で時間方向に平滑化し、新しいC3Dとして書き出すCLI（Blender・GPU不要、phase4 venv）
   - パイプライン設計: `fps_camera_pose.py` 内でのフィルタ案は却下し、C3D→C3D の独立前処理とした。平滑化済みC3Dは Blender io_anim_c3d 取り込み（→ `fps_camera_pose.py`）と `render_keypoints.py` の全下流に一括で効く

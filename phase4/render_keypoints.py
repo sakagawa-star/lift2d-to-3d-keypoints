@@ -1,7 +1,7 @@
 """ピンホール3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、連番PNG/MP4出力）
 
 指定した1台のカメラ視点で 3DGS点群（PLY）を gsplat の古典ピンホール経路で
-レンダリングし、その背景画像に人体3Dキーポイント（C3D, Halpe26）を全フレーム
+レンダリングし、その背景画像に人体3Dキーポイント（C3D）を全フレーム
 （または --start-frame/--end-frame で指定した範囲）投影して点＋ボーンで重ね描きする。
 その際、3DGSの深度マップと各キーポイントのカメラ深度を比較して前後関係（オクルージョン）を
 反映し、カメラ手前の3DGS（障害物）に隠れるキーポイント・ボーンを隠蔽する。
@@ -11,7 +11,8 @@
 入力（Blenderを経由せず元データを直読み）:
   - PLY : LCC Studio製3DGS（ネイティブ座標＝キャリブレーション座標、Z-up・メートル）
   - TOML: Pose2Simキャリブ（OpenCV規約 world-to-camera、複数カメラ）
-  - C3D : 人体キーポイント（Halpe26、mm。全フレーム使用）
+  - C3D : 人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、mm。
+          C3Dに無い既知マーカーは描画スキップ＝欠損許容。全フレーム使用）
 
 実行は phase4 venv で行う（torch/gsplat が必要）:
   TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
@@ -32,7 +33,7 @@ import numpy as np
 import tomli
 
 
-# === Halpe26 定数（feat-013 design.md より復元） ===
+# === キーポイント定数（feat-013 design.md より復元、feat-021 で欠損許容に拡張） ===
 
 # Halpe26 キーポイント名（C3D label と一致）
 HALPE26_NAMES = [
@@ -42,22 +43,12 @@ HALPE26_NAMES = [
     "RShoulder", "RElbow", "RWrist", "LShoulder", "LElbow", "LWrist",
 ]
 
-# ボーン端点名 → HALPE26_NAMES内インデックスの辞書
-NAME_TO_IDX = {name: i for i, name in enumerate(HALPE26_NAMES)}
+# 既知マーカー（描画対象）: Halpe26 の26点 + 体幹中間点2点。計28点。
+# C3Dに存在しない既知マーカーは valid=False として点・ボーンをスキップする（欠損許容）
+KEYPOINT_NAMES = HALPE26_NAMES + ["Spine", "Thorax"]
 
-# Halpe26 スケルトン（ボーン）定義: (始点名, 終点名, 部位)
-# 部位: "R"=右半身, "L"=左半身, "C"=体幹/顔
-HALPE26_SKELETON = [
-    ("Head", "Nose", "C"), ("Nose", "Neck", "C"), ("Neck", "Hip", "C"),
-    ("Nose", "REye", "R"), ("REye", "REar", "R"),
-    ("Nose", "LEye", "L"), ("LEye", "LEar", "L"),
-    ("Neck", "RShoulder", "R"), ("RShoulder", "RElbow", "R"), ("RElbow", "RWrist", "R"),
-    ("Neck", "LShoulder", "L"), ("LShoulder", "LElbow", "L"), ("LElbow", "LWrist", "L"),
-    ("Hip", "RHip", "R"), ("RHip", "RKnee", "R"), ("RKnee", "RAnkle", "R"),
-    ("Hip", "LHip", "L"), ("LHip", "LKnee", "L"), ("LKnee", "LAnkle", "L"),
-    ("RAnkle", "RHeel", "R"), ("RAnkle", "RBigToe", "R"), ("RBigToe", "RSmallToe", "R"),
-    ("LAnkle", "LHeel", "L"), ("LAnkle", "LBigToe", "L"), ("LBigToe", "LSmallToe", "L"),
-]
+# ボーン端点名 → KEYPOINT_NAMES内インデックスの辞書
+NAME_TO_IDX = {name: i for i, name in enumerate(KEYPOINT_NAMES)}
 
 # 色 (BGR, OpenCV)。左右は被験者本人の解剖学的左右（マーカー名 R*/L* に従う。カメラ視点ではない）
 COLOR_RIGHT = (0, 0, 255)     # 赤（被験者の右半身: RShoulder 等）
@@ -258,24 +249,61 @@ def c3d_to_calib(points_mm: np.ndarray) -> np.ndarray:
     return np.stack([pz, px, py], axis=-1) * 0.001
 
 
-def extract_halpe26(
+def build_skeleton(present: set[str]) -> list[tuple[str, str, str]]:
+    """C3Dに存在する既知マーカー集合から描画するスケルトン（ボーン列）を構築する。
+
+    体幹は Spine/Thorax の有無で切り替える（両方あれば Neck–Thorax–Spine–Hip の3本、
+    どちらも無ければ従来の Neck–Hip 直結）。体幹ボーンはベーススケルトンの
+    Neck–Hip と同じ位置に挿入する（描画順を維持し、26点C3Dで従来と同一描画を保証）。
+    両端点のいずれかが present に無いボーンは除外する。
+
+    Args:
+        present: C3Dラベルに存在する既知マーカー名の集合（フレームごとの valid ではない）
+
+    Returns:
+        (始点名, 終点名, 部位) のリスト。部位: "R"=右半身, "L"=左半身, "C"=体幹/顔
+    """
+    # 体幹ボーン（Spine/Thorax の有無で4通り）
+    has_thorax = "Thorax" in present
+    has_spine = "Spine" in present
+    if has_thorax and has_spine:
+        torso = [("Neck", "Thorax", "C"), ("Thorax", "Spine", "C"), ("Spine", "Hip", "C")]
+    elif has_thorax:
+        torso = [("Neck", "Thorax", "C"), ("Thorax", "Hip", "C")]
+    elif has_spine:
+        torso = [("Neck", "Spine", "C"), ("Spine", "Hip", "C")]
+    else:
+        torso = [("Neck", "Hip", "C")]  # 体幹フォールバックボーン（従来定義）
+
+    skeleton = [
+        ("Head", "Nose", "C"), ("Nose", "Neck", "C"), *torso,
+        ("Nose", "REye", "R"), ("REye", "REar", "R"),
+        ("Nose", "LEye", "L"), ("LEye", "LEar", "L"),
+        ("Neck", "RShoulder", "R"), ("RShoulder", "RElbow", "R"), ("RElbow", "RWrist", "R"),
+        ("Neck", "LShoulder", "L"), ("LShoulder", "LElbow", "L"), ("LElbow", "LWrist", "L"),
+        ("Hip", "RHip", "R"), ("RHip", "RKnee", "R"), ("RKnee", "RAnkle", "R"),
+        ("Hip", "LHip", "L"), ("LHip", "LKnee", "L"), ("LKnee", "LAnkle", "L"),
+        ("RAnkle", "RHeel", "R"), ("RAnkle", "RBigToe", "R"), ("RBigToe", "RSmallToe", "R"),
+        ("LAnkle", "LHeel", "L"), ("LAnkle", "LBigToe", "L"), ("LBigToe", "LSmallToe", "L"),
+    ]
+    return [b for b in skeleton if b[0] in present and b[1] in present]
+
+
+def extract_keypoints(
     labels: list[str], data: np.ndarray, residual: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """ラベルから Halpe26 の26点を抽出し、(26,3) 座標と (26,) 有効フラグを返す。
+    """ラベルから既知マーカー28点を抽出し、(28,3) 座標と (28,) 有効フラグを返す。
 
-    有効 = residual >= 0 かつ 座標にNaNを含まない。
-    Halpe26名がC3Dに欠ける場合は不足名を表示して ValueError。
+    有効 = マーカーがC3Dに存在し、residual >= 0 かつ 座標にNaNを含まない。
+    C3Dに存在しない既知マーカーは valid=False・座標 0.0 とする（欠損許容。例外は投げない）。
     """
     name_to_c3d_idx = {name: i for i, name in enumerate(labels)}
-    missing = [name for name in HALPE26_NAMES if name not in name_to_c3d_idx]
-    if missing:
-        raise ValueError(
-            f"C3DにHalpe26マーカーが不足しています: {', '.join(missing)}"
-        )
-
-    kpts = np.empty((26, 3), dtype=np.float64)
-    valid = np.empty(26, dtype=bool)
-    for i, name in enumerate(HALPE26_NAMES):
+    n = len(KEYPOINT_NAMES)
+    kpts = np.zeros((n, 3), dtype=np.float64)
+    valid = np.zeros(n, dtype=bool)
+    for i, name in enumerate(KEYPOINT_NAMES):
+        if name not in name_to_c3d_idx:
+            continue  # 欠損マーカー: kpts=0, valid=False のまま
         idx = name_to_c3d_idx[name]
         coord = data[idx]
         kpts[i] = coord
@@ -369,6 +397,7 @@ def draw_overlay(
     valid: np.ndarray,
     kp_visible: np.ndarray,
     cam: dict,
+    skeleton: list[tuple[str, str, str]],
     depth_map,
     alpha_map,
     margin: float,
@@ -378,14 +407,14 @@ def draw_overlay(
     """背景画像のコピーに点とボーンをオクルージョン考慮で描画して返す。
 
     点: occlusion=True 時は valid[i] and kp_visible[i] のみ。occlusion=False 時は valid[i] のみ。
-    ボーン: 両端 valid の辺を BONE_SAMPLES 個に補間し、可視な隣接サンプルのみ線で結ぶ
-            （occlusion=False 時は両端valid辺を全描画）。
+    ボーン: skeleton（build_skeleton の戻り値）のうち両端 valid の辺を BONE_SAMPLES 個に
+            補間し、可視な隣接サンプルのみ線で結ぶ（occlusion=False 時は両端valid辺を全描画）。
     occlusion=False 時は depth_map/alpha_map を参照しないので None 可。
     """
     img = image.copy()
 
     # ボーン（点より先に描き、点を上に乗せる）
-    for start, end, part in HALPE26_SKELETON:
+    for start, end, part in skeleton:
         ia, ib = NAME_TO_IDX[start], NAME_TO_IDX[end]
         if not (valid[ia] and valid[ib]):
             continue
@@ -412,7 +441,7 @@ def draw_overlay(
                 cv2.line(img, pa, pb, color, LINE_THICKNESS)
 
     # 点
-    for i in range(len(HALPE26_NAMES)):
+    for i in range(len(KEYPOINT_NAMES)):
         if not valid[i]:
             continue
         if occlusion and not kp_visible[i]:
@@ -482,7 +511,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("ply_path", help="3DGS PLYファイルパス")
     parser.add_argument("toml_path", help="キャリブレーションTOMLパス")
-    parser.add_argument("c3d_path", help="人体キーポイントC3Dパス（Halpe26、全フレームを使用）")
+    parser.add_argument("c3d_path",
+                        help="人体キーポイントC3Dパス（Halpe26 + Spine/Thorax の既知28マーカー。"
+                             "欠損許容、全フレームを使用）")
     parser.add_argument("--camera", required=True, help="TOML内の対象カメラ名")
     parser.add_argument("--near-plane", type=float, default=0.1,
                         help="near クリップ距離[m]（floater除去用、default: 0.1）")
@@ -517,16 +548,24 @@ def main(argv=None) -> int:
         return 1
     print(f"対象カメラ: {cam['name']} ({cam['width']}x{cam['height']})")
 
-    # C3Dロード（全フレーム）・Halpe26ラベル存在チェック（重いPLY/torchロード前に検証）
+    # C3Dロード（全フレーム）・既知マーカー存在チェック（重いPLY/torchロード前に検証）
     print(f"C3D読み込み中（全フレーム）: {args.c3d_path}")
     try:
         labels, frames_data, point_rate = load_c3d_all_frames(args.c3d_path)
-        # Halpe26ラベルの有無はC3D全体で固定のため、先頭フレームで一度だけ検証する
-        # （ラベル不足なら全フレームで失敗するので、重い処理の前に弾く）
-        extract_halpe26(labels, frames_data[0]["data"], frames_data[0]["residual"])
     except ValueError as e:
         print(e, file=sys.stderr)
         return 1
+    # マーカー構成はC3D全体で固定。既知マーカー0個なら描画対象がないため早期終了する
+    present = {name for name in KEYPOINT_NAMES if name in labels}
+    if not present:
+        print(f"C3Dに既知マーカーが1つもありません（labels: {', '.join(labels)}）",
+              file=sys.stderr)
+        return 1
+    missing = [name for name in KEYPOINT_NAMES if name not in present]
+    print(f"キーポイント: {len(present)}/{len(KEYPOINT_NAMES)} マーカーを描画対象とします")
+    if missing:
+        print(f"欠損マーカー（描画スキップ）: {', '.join(missing)}")
+    skeleton = build_skeleton(present)
     total_frames = len(frames_data)
     print(f"C3D: {total_frames} フレーム, rate={point_rate} Hz")
 
@@ -594,7 +633,7 @@ def main(argv=None) -> int:
     try:
         n = len(frames_data)
         for i, fr in enumerate(frames_data):
-            kpts_mm, valid = extract_halpe26(labels, fr["data"], fr["residual"])
+            kpts_mm, valid = extract_keypoints(labels, fr["data"], fr["residual"])
             kpts_calib = c3d_to_calib(kpts_mm)
             pts2d = project_keypoints(kpts_calib, cam)
             if occlusion:
@@ -604,10 +643,10 @@ def main(argv=None) -> int:
                     args.occlusion_margin, args.near_plane,
                 )
             else:
-                kp_visible = np.ones(26, dtype=bool)
+                kp_visible = np.ones(len(KEYPOINT_NAMES), dtype=bool)
 
             overlay = draw_overlay(
-                bgr_bg, kpts_calib, pts2d, valid, kp_visible, cam,
+                bgr_bg, kpts_calib, pts2d, valid, kp_visible, cam, skeleton,
                 depth_map, alpha_map, args.occlusion_margin, args.near_plane,
                 occlusion=occlusion,
             )

@@ -18,11 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "phase4"))
 from render_keypoints import (
     ALPHA_THRESH,
     HALPE26_NAMES,
+    KEYPOINT_NAMES,
+    build_skeleton,
     c3d_to_calib,
     compute_keypoint_depth,
     compute_visibility,
     draw_overlay,
-    extract_halpe26,
+    extract_keypoints,
     project_keypoints,
 )
 
@@ -79,10 +81,10 @@ class TestComputeKeypointDepth:
 
 
 # ========================================
-# extract_halpe26（合成データ）
+# extract_keypoints（合成データ）
 # ========================================
 
-class TestExtractHalpe26:
+class TestExtractKeypoints:
     def _make_labels_data(self):
         # 26マーカーを逆順で並べ、抽出が名前ベースであることを検証
         labels = list(reversed(HALPE26_NAMES))
@@ -91,19 +93,22 @@ class TestExtractHalpe26:
         return labels, data, residual
 
     def test_reorders_to_halpe26(self):
-        """C3D順がどうあれ HALPE26_NAMES 順に並ぶ"""
+        """C3D順がどうあれ KEYPOINT_NAMES 順に並ぶ（Spine/Thorax 欠損は valid False）"""
         labels, data, residual = self._make_labels_data()
-        kpts, valid = extract_halpe26(labels, data, residual)
-        assert kpts.shape == (26, 3) and valid.shape == (26,)
+        kpts, valid = extract_keypoints(labels, data, residual)
+        assert kpts.shape == (28, 3) and valid.shape == (28,)
         # HALPE26_NAMES[0]="Hip" は labels（逆順）の末尾 idx=25
         np.testing.assert_allclose(kpts[0], data[25])
-        assert valid.all()
+        assert valid[:26].all()
+        # Spine/Thorax は labels に無いので valid False・座標 0.0
+        assert not valid[26:].any()
+        np.testing.assert_allclose(kpts[26:], 0.0)
 
     def test_negative_residual_invalid(self):
         """residual < 0 の点は valid False"""
         labels, data, residual = self._make_labels_data()
         residual[5] = -1.0  # labels[5] に対応するマーカー
-        _, valid = extract_halpe26(labels, data, residual)
+        _, valid = extract_keypoints(labels, data, residual)
         # labels は逆順なので labels[5] = HALPE26_NAMES[20]
         assert not valid[HALPE26_NAMES.index(labels[5])]
 
@@ -111,17 +116,19 @@ class TestExtractHalpe26:
         """座標にNaNを含む点は valid False"""
         labels, data, residual = self._make_labels_data()
         data[3, 1] = np.nan
-        _, valid = extract_halpe26(labels, data, residual)
+        _, valid = extract_keypoints(labels, data, residual)
         assert not valid[HALPE26_NAMES.index(labels[3])]
 
-    def test_missing_marker_raises(self):
-        """Halpe26名が不足すると ValueError（不足名を含む）"""
+    def test_missing_marker_invalid(self):
+        """既知マーカーが不足しても例外を投げず、欠損マーカーは valid False（feat-021）"""
         labels = list(HALPE26_NAMES)
         labels[0] = "Unknown"  # "Hip" が欠ける
         data = np.zeros((26, 3))
         residual = np.zeros(26)
-        with pytest.raises(ValueError, match="Hip"):
-            extract_halpe26(labels, data, residual)
+        kpts, valid = extract_keypoints(labels, data, residual)
+        assert not valid[KEYPOINT_NAMES.index("Hip")]
+        # 残りの既存25点は valid True
+        assert valid[1:26].all()
 
 
 # ========================================
@@ -222,11 +229,15 @@ class TestComputeVisibility:
 # ========================================
 
 class TestDrawOverlay:
+    # 変更前と同一のスケルトン（Spine/Thorax なし）で従来の検証意図を維持
+    _SKELETON = build_skeleton(set(HALPE26_NAMES))
+
     def _setup(self):
-        # 26点を画像中央付近に格子状に配置（全て画像内）
+        # 28点を画像中央付近に格子状に配置（全て画像内）
+        n = len(KEYPOINT_NAMES)
         img = np.zeros((100, 100, 3), dtype=np.uint8)
-        kpts_calib = np.zeros((26, 3), dtype=np.float64)
-        pts2d = np.array([[10 + (i % 13) * 6, 10 + (i // 13) * 6] for i in range(26)],
+        kpts_calib = np.zeros((n, 3), dtype=np.float64)
+        pts2d = np.array([[10 + (i % 14) * 6, 10 + (i // 14) * 6] for i in range(n)],
                          dtype=np.float64)
         cam = {"rvec": np.zeros(3), "tvec": np.array([0.0, 0.0, 2.0]),
                "K": np.array([[100.0, 0, 50], [0, 100.0, 50], [0, 0, 1]])}
@@ -235,9 +246,9 @@ class TestDrawOverlay:
     def test_no_crash_and_returns_copy(self):
         """例外なく描画し、入力画像を破壊しない"""
         img, kpts_calib, pts2d, cam = self._setup()
-        valid = np.ones(26, dtype=bool)
-        vis = np.ones(26, dtype=bool)
-        out = draw_overlay(img, kpts_calib, pts2d, valid, vis, cam,
+        valid = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+        vis = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+        out = draw_overlay(img, kpts_calib, pts2d, valid, vis, cam, self._SKELETON,
                            None, None, margin=0.05, near_plane=0.1, occlusion=False)
         assert out.shape == img.shape
         assert (img == 0).all()  # 元画像は不変
@@ -246,14 +257,14 @@ class TestDrawOverlay:
     def test_invisible_points_not_drawn(self):
         """occlusion=True で kp_visible False の点は描かれない"""
         img, kpts_calib, pts2d, cam = self._setup()
-        valid = np.ones(26, dtype=bool)
-        vis_all = np.ones(26, dtype=bool)
-        vis_none = np.zeros(26, dtype=bool)
+        valid = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+        vis_all = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+        vis_none = np.zeros(len(KEYPOINT_NAMES), dtype=bool)
         depth_map = np.full((100, 100), 100.0, dtype=np.float32)
         alpha_map = np.zeros((100, 100), dtype=np.float32)
-        out_all = draw_overlay(img, kpts_calib, pts2d, valid, vis_all, cam,
+        out_all = draw_overlay(img, kpts_calib, pts2d, valid, vis_all, cam, self._SKELETON,
                                depth_map, alpha_map, 0.05, 0.1, occlusion=True)
-        out_none = draw_overlay(img, kpts_calib, pts2d, valid, vis_none, cam,
+        out_none = draw_overlay(img, kpts_calib, pts2d, valid, vis_none, cam, self._SKELETON,
                                 depth_map, alpha_map, 0.05, 0.1, occlusion=True)
         # 可視ゼロのほうが描画画素が少ない（点が消える）
         assert int((out_none != 0).sum()) < int((out_all != 0).sum())
@@ -261,12 +272,12 @@ class TestDrawOverlay:
     def test_invalid_points_not_drawn(self):
         """valid False の点は occlusion 無効でも描かれない"""
         img, kpts_calib, pts2d, cam = self._setup()
-        valid_all = np.ones(26, dtype=bool)
-        valid_none = np.zeros(26, dtype=bool)
-        vis = np.ones(26, dtype=bool)
-        out_all = draw_overlay(img, kpts_calib, pts2d, valid_all, vis, cam,
+        valid_all = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+        valid_none = np.zeros(len(KEYPOINT_NAMES), dtype=bool)
+        vis = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+        out_all = draw_overlay(img, kpts_calib, pts2d, valid_all, vis, cam, self._SKELETON,
                                None, None, 0.05, 0.1, occlusion=False)
-        out_none = draw_overlay(img, kpts_calib, pts2d, valid_none, vis, cam,
+        out_none = draw_overlay(img, kpts_calib, pts2d, valid_none, vis, cam, self._SKELETON,
                                 None, None, 0.05, 0.1, occlusion=False)
         assert (out_none == 0).all()  # 何も描かれない
         assert (out_all != 0).any()
