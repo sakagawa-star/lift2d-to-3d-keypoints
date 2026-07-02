@@ -1,0 +1,37 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.1.1, pluggy-1.6.0 -- /home/sakagawa/.cache/uv/builds-v0/.tmpxdBWpo/bin/python
+cachedir: .pytest_cache
+rootdir: /home/sakagawa/git/lift2d-to-3d-keypoints
+configfile: pyproject.toml
+plugins: jaxtyping-0.3.7
+collecting ... collected 14 items
+
+tests/test_filter_c3d.py::test_constant_series_preserved PASSED          [  7%]
+tests/test_filter_c3d.py::test_lowfreq_preserved_highfreq_attenuated PASSED [ 14%]
+tests/test_filter_c3d.py::test_split_segments PASSED                     [ 21%]
+tests/test_filter_c3d.py::test_gap_interpolation_and_invalid_kept PASSED [ 28%]
+tests/test_filter_c3d.py::test_long_gap_splits_segments PASSED           [ 35%]
+tests/test_filter_c3d.py::test_edge_invalid_untouched PASSED             [ 42%]
+tests/test_filter_c3d.py::test_short_segment_skipped PASSED              [ 50%]
+tests/test_filter_c3d.py::test_roundtrip_c3d PASSED                      [ 57%]
+tests/test_filter_c3d.py::test_output_same_as_input_rejected PASSED      [ 64%]
+tests/test_filter_c3d.py::test_output_symlink_to_input_rejected PASSED   [ 71%]
+tests/test_filter_c3d.py::test_cutoff_validation PASSED                  [ 78%]
+tests/test_filter_c3d.py::test_rate_conflict_rejected PASSED             [ 85%]
+tests/test_filter_c3d.py::test_wrong_units_rejected PASSED               [ 92%]
+tests/test_filter_c3d.py::test_screen_axis_missing_or_wrong_rejected PASSED [100%]
+
+=============================== warnings summary ===============================
+tests/test_filter_c3d.py::test_roundtrip_c3d
+tests/test_filter_c3d.py::test_output_same_as_input_rejected
+tests/test_filter_c3d.py::test_output_symlink_to_input_rejected
+tests/test_filter_c3d.py::test_cutoff_validation
+tests/test_filter_c3d.py::test_rate_conflict_rejected
+tests/test_filter_c3d.py::test_wrong_units_rejected
+tests/test_filter_c3d.py::test_screen_axis_missing_or_wrong_rejected
+  /home/sakagawa/git/lift2d-to-3d-keypoints/phase4/.venv/lib/python3.10/site-packages/c3d/c3d.py:1219: UserWarning: No analog data found in file.
+    warnings.warn('No analog data found in file.')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 14 passed, 7 warnings in 0.37s ========================
+# 実行コマンド: uv run --project phase4 --with pytest pytest tests/test_filter_c3d.py -v

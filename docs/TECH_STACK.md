@@ -66,7 +66,8 @@
 | Pillow | （指定なし） | 12.1.1 | レンダリング結果の PNG 保存 | render.py | 画像入出力 |
 | opencv-python | >=4.13.0.92 | 4.13.0.92 | キーポイント重ね描き・画像処理 | render_keypoints.py | 描画・画像処理 |
 | tomli | >=2.4.1 | 2.4.1 | カメラパラメータ TOML の読み込み | render_keypoints.py | Python 3.10 に tomllib が無いため |
-| c3d | >=0.6.0 | 0.6.0 | C3D キーポイントデータの読み込み | render_keypoints.py | キーポイント入力形式対応 |
+| c3d | >=0.6.0 | 0.6.0 | C3D キーポイントデータの読み書き | render_keypoints.py, npz_to_c3d.py, filter_c3d.py | キーポイント入力形式対応 |
+| scipy | >=1.11 | 1.15.3 | butter/filtfilt によるC3Dキーポイントの時間方向平滑化（ゼロ位相ローパス） | filter_c3d.py | ゼロ位相Butterworthフィルタはモーキャプ後処理の標準手法で、SciPyが事実上の標準実装（feat-020） |
 | packaging | >=26.0 | 26.0 | gsplat の CUDA 拡張 JIT ビルド時のバージョン判定 | （ビルド時依存） | gsplat ビルドが要求 |
 | setuptools | >=82.0.1 | 82.0.1 | gsplat の CUDA 拡張 JIT ビルド | （ビルド時依存） | gsplat ビルドが要求 |
 

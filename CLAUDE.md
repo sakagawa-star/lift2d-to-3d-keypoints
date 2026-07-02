@@ -103,6 +103,15 @@ blender -b data/FPS-camera.blend --python camera_pose.py -- --camera FPSCamera
 /home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender -b data/Blender/2D-Lift.blend \
     --python fps_camera_pose.py -- --camera Cam_FPS --output data/Cam_FPS_poses.json
 
+# 1c. C3Dキーポイントの時間方向平滑化（feat-020。Blender・GPU不要）
+#     リフトアップ推定由来のジッターを Butterworth 2次 filtfilt（ゼロ位相）で除去し、
+#     <入力>_filtered.c3d に書き出す。平滑化済みC3Dを Blender に再インポートして
+#     fps_camera_pose.py / render_keypoints.py の入力に使う。
+#     --cutoff でカットオフ周波数（既定 6.0 Hz。下げるほど滑らか）、--max-gap で
+#     線形補間する欠損ギャップ長の上限（既定10フレーム。超過はセグメント分割）。
+#     入力は本プロジェクト規約のC3D（npz_to_c3d.py 出力: mm / +Z / +Y）限定。
+uv run python filter_c3d.py data/session001_world_22pt.c3d
+
 # 2. バッチレンダリング（dry-run: 画像保存なしで動作確認・速度計測）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --dry-run
 
@@ -177,6 +186,7 @@ lift2d-to-3d-keypoints/
 │   ├── render.py                      # バッチレンダリングスクリプト
 │   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力。feat-015/016/017）
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
+│   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   └── data/                          # データファイル（gitignore）
 └── tests/                             # テストコード
     └── results/                       # テスト結果保存先
@@ -396,3 +406,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）（2026-06-14完了、C3D全フレーム描画。`load_c3d_all_frames`/`start_ffmpeg` 追加、背景レンダリングをループ前1回計算で共有。`--output-dir`/`--start-frame`/`--end-frame`/`--mp4`/`--mp4-fps`、`--output` 廃止）
 - **feat-018**: NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応）（2026-06-25完了、`phase4/npz_to_c3d.py` 新規。world(X,Y,Z)m→C3D raw(Y,Z,X)×1000 mm で `c3d_to_calib` 互換。C3Dフレームは1始まり（py-c3d 16bit制約回避）。Blender正立は `UNITS='mm'`/`X_SCREEN='+Z'`/`Y_SCREEN='+Y'`（io_anim_c3d は pose bone ローカル座標+rest行列で描画するため表示鉛直は Y_SCREEN で決まる）。出力は一時ファイル→読み戻し検証→`os.replace` のアトミック確定）
 - **feat-019**: FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応）（2026-07-01完了、`phase4/fps_camera_pose.py` 新規。`camera_pose.py` は温存。向きを与える `frame_change_post` ハンドラが `-b` で発火せず向きが凍結する問題を、Frankfurt平面ベースの姿勢計算を内蔵して解消。ボーンは評価済み depsgraph から取得、アンカー回転適用後 `view_layer.update()` で子カメラへ反映。起動時＋全フレームで構成・縮退・直交・位置/向き整合を検証し違反時 exit(1)。出力は camera_pose.py と同一スキーマ＋原子的書き出し。`--camera`/`--armature`/`--anchor`/`--output`。実行は Blender 4.5.5）
+- **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト（2026-07-02完了、`phase4/filter_c3d.py` 新規。C3D→C3Dの独立前処理で、リフトアップ推定ジッターを Butterworth 2次 filtfilt（実効4次・ゼロ位相）で除去。`--cutoff`（既定6.0Hz）/`--rate`（point rate欠損時の補完専用）/`--max-gap`（既定10。超過ギャップはセグメント分割で独立フィルタ、無効サンプルは無効のまま維持）/`--output`（既定 `<入力>_filtered.c3d`）。入力は本プロジェクト規約のC3D（mm / +Z / +Y、first_frame 1〜65534）限定で規約外はエラー。phase4 に scipy>=1.11 追加）

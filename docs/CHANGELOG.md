@@ -2,6 +2,20 @@
 
 ## リリース履歴
 
+### 2026-07-02
+
+- **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト
+  - `phase4/filter_c3d.py` を新規作成。リフトアップ推定由来のC3Dキーポイント（フレーム間ジッターで"カクカク"）を、2次Butterworthローパス + `scipy.signal.filtfilt`（実効4次・ゼロ位相）で時間方向に平滑化し、新しいC3Dとして書き出すCLI（Blender・GPU不要、phase4 venv）
+  - パイプライン設計: `fps_camera_pose.py` 内でのフィルタ案は却下し、C3D→C3D の独立前処理とした。平滑化済みC3Dは Blender io_anim_c3d 取り込み（→ `fps_camera_pose.py`）と `render_keypoints.py` の全下流に一括で効く
+  - フィルタ: カットオフ周波数 `--cutoff`（既定 6.0 Hz、モーキャプ慣用値）1個で強さを調整。サンプリング周波数はC3Dの point rate から取得（欠損時のみ `--rate` で補完。有効rateとの併存はエラー）
+  - 無効サンプル（residual<0/NaN）: `--max-gap`（既定10フレーム）以下のギャップのみ線形補間してフィルタ計算に使い、超えるギャップはセグメント分割して独立フィルタ（長い欠損の直線補間値がfiltfilt経由で有効サンプルを汚染するのを防ぐ）。出力では無効サンプルを無効のまま維持（補間値を有効値として書かない）。長さ10未満のセグメントはスキップ＋警告
+  - 入力規約検証: 対象は本プロジェクト規約のC3D（feat-018出力）に限定。POINT:UNITS=mm、X_SCREEN=+Z/Y_SCREEN=+Y（欠落もエラー）、first_frame 1〜65534（py-c3d 16bit制約）を検証し、規約外はエラー終了（単位・軸の暗黙変更によるデータ破損防止）
+  - 安全策: 出力パス拡張子 `.c3d` 必須、入力との同一パス拒否（realpath + samefile でsymlink経由の同一実体も拒否）、一時ファイル→読み戻し検証→`os.replace` のアトミック書き出し
+  - 依存追加: phase4 に `scipy>=1.11`（1.15.3 導入）。`docs/TECH_STACK.md` 更新
+  - テスト: `tests/test_filter_c3d.py` 新規14件（フィルタ特性・セグメント分割・無効サンプル維持・C3D往復・全バリデーション）。実行は `uv run --project phase4 --with pytest pytest tests/test_filter_c3d.py -v`
+  - Codexレビュー計4サイクル（高: メタデータ維持矛盾・無制限ギャップ補間・スクリーン軸欠落許容、中: 16bit制約・makedirs("")・symlink判定を解消）
+  - 手動テストで「フィルタ後C3Dが90度回転して見える」報告があったが、調査（素通しバイト一致・メタデータ一致・Procrustes回転角0.000度）で `filter_c3d.py` 起因ではないと確定。Blender新規ファイルへの取り込み直しで位置一致をユーザー確認（`docs/issues/feat-020-c3d-temporal-filter/investigation.md`）
+
 ### 2026-07-01
 
 - **feat-019**: FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応）

@@ -24,4 +24,5 @@
 | feat-017 | 機能追加 | render_keypoints.py 全フレーム対応（連番PNG + MP4） | Closed |
 | feat-018 | 機能追加 | NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応） | Closed |
 | feat-019 | 機能追加 | FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応） | Closed |
+| feat-020 | 機能追加 | C3Dキーポイントの時間方向平滑化スクリプト | Closed |
 
