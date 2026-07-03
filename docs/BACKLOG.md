@@ -27,3 +27,4 @@
 | feat-020 | 機能追加 | C3Dキーポイントの時間方向平滑化スクリプト | Closed |
 | feat-021 | 機能追加 | render_keypoints.py 欠損マーカー許容（22点C3D対応） | Closed |
 
+| feat-022 | 機能追加 | render_keypoints.py --no-png オプション（MP4のみ出力） | Closed |

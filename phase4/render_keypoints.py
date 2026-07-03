@@ -533,11 +533,18 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="連番PNGに加えてMP4動画も出力する")
     parser.add_argument("--mp4-fps", type=float, default=None,
                         help="MP4フレームレート（小数可、default: C3D rate）")
+    parser.add_argument("--no-png", action="store_true",
+                        help="連番PNG保存をスキップしMP4のみ出力する（--mp4 と併用必須）")
     return parser
 
 
 def main(argv=None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    # --no-png 単独指定は出力が何もなくなるため、重い処理に入る前に拒否する
+    if args.no_png and not args.mp4:
+        parser.error("--no-png は --mp4 と併用してください（両方省略時は連番PNGのみ出力）")
 
     # カメラ選択（torch/gsplat の重いロード前に行い、誤ったカメラ名を早期検出する）
     cameras = load_cameras_toml(args.toml_path)
@@ -651,18 +658,21 @@ def main(argv=None) -> int:
                 occlusion=occlusion,
             )
 
-            # 連番PNG保存。cv2.imwrite は False 返却と cv2.error 送出の2系統で失敗しうる
-            png_path = os.path.join(output_dir, f"frame_{fr['frame_no']:06d}.png")
-            try:
-                ok = cv2.imwrite(png_path, overlay)
-            except cv2.error as e:
-                print(f"エラー: PNGの保存に失敗しました: {png_path}: {e}", file=sys.stderr)
-                rc = 1
-                break
-            if not ok:
-                print(f"エラー: PNGの保存に失敗しました: {png_path}", file=sys.stderr)
-                rc = 1
-                break
+            # 連番PNG保存（--no-png 時はスキップ。cv2.imwrite は False 返却と
+            # cv2.error 送出の2系統で失敗しうる）
+            if not args.no_png:
+                png_path = os.path.join(output_dir, f"frame_{fr['frame_no']:06d}.png")
+                try:
+                    ok = cv2.imwrite(png_path, overlay)
+                except cv2.error as e:
+                    print(f"エラー: PNGの保存に失敗しました: {png_path}: {e}",
+                          file=sys.stderr)
+                    rc = 1
+                    break
+                if not ok:
+                    print(f"エラー: PNGの保存に失敗しました: {png_path}", file=sys.stderr)
+                    rc = 1
+                    break
 
             # MP4: overlay は BGR。ffmpeg には rgb24 を渡すため RGB化して書き込む
             if ffmpeg_proc is not None:
@@ -675,8 +685,12 @@ def main(argv=None) -> int:
                     rc = 1
                     break
 
-            suffix = " -> mp4" if ffmpeg_proc is not None else ""
-            print(f"  [{i + 1}/{n}] {png_path}{suffix}")
+            # 進捗表示（--no-png 時は png_path が未定義のためフレーム番号で表示）
+            if args.no_png:
+                print(f"  [{i + 1}/{n}] frame {fr['frame_no']} -> mp4")
+            else:
+                suffix = " -> mp4" if ffmpeg_proc is not None else ""
+                print(f"  [{i + 1}/{n}] {png_path}{suffix}")
     finally:
         # ffmpegプロセスのクリーンアップ（PNG失敗・write失敗・想定外例外の全経路で実行）
         if ffmpeg_proc is not None:

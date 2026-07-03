@@ -128,6 +128,8 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 #    出力は --output-dir に連番PNG（frame_<C3Dフレーム番号:06d>.png）。--mp4 でMP4も出力
 #    （fps既定はC3D rate、--mp4-fps で上書き。小数fps保持）。範囲は --start-frame/--end-frame
 #    （両端含む）。1フレームだけ見たい場合は --start-frame N --end-frame N で絞る。
+#    数万フレーム規模でMP4だけ欲しい場合は --no-png でPNG保存をスキップすると大幅に速い
+#    （--mp4 と併用必須。feat-022）。
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
     data/Blender/keypoints.c3d \
@@ -185,7 +187,7 @@ lift2d-to-3d-keypoints/
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── fps_camera_pose.py             # FPS頭部追従カメラのポーズ書き出し（ヘッドレスで向きを計算・内蔵。feat-019）
 │   ├── render.py                      # バッチレンダリングスクリプト
-│   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容。feat-015/016/017/021）
+│   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容、--no-png でMP4のみ出力。feat-015/016/017/021/022）
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   └── data/                          # データファイル（gitignore）
@@ -409,3 +411,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-019**: FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応）（2026-07-01完了、`phase4/fps_camera_pose.py` 新規。`camera_pose.py` は温存。向きを与える `frame_change_post` ハンドラが `-b` で発火せず向きが凍結する問題を、Frankfurt平面ベースの姿勢計算を内蔵して解消。ボーンは評価済み depsgraph から取得、アンカー回転適用後 `view_layer.update()` で子カメラへ反映。起動時＋全フレームで構成・縮退・直交・位置/向き整合を検証し違反時 exit(1)。出力は camera_pose.py と同一スキーマ＋原子的書き出し。`--camera`/`--armature`/`--anchor`/`--output`。実行は Blender 4.5.5）
 - **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト（2026-07-02完了、`phase4/filter_c3d.py` 新規。C3D→C3Dの独立前処理で、リフトアップ推定ジッターを Butterworth 2次 filtfilt（実効4次・ゼロ位相）で除去。`--cutoff`（既定6.0Hz）/`--rate`（point rate欠損時の補完専用）/`--max-gap`（既定10。超過ギャップはセグメント分割で独立フィルタ、無効サンプルは無効のまま維持）/`--output`（既定 `<入力>_filtered.c3d`）。入力は本プロジェクト規約のC3D（mm / +Z / +Y、first_frame 1〜65534）限定で規約外はエラー。phase4 に scipy>=1.11 追加）
 - **feat-021**: render_keypoints.py 欠損マーカー許容（22点C3D対応）（2026-07-02完了、既知マーカーを `KEYPOINT_NAMES`（Halpe26 26点 + Spine/Thorax の28点）に拡張し、C3Dに無い既知マーカーは valid=False で点・ボーンを描画スキップ。`extract_halpe26` → `extract_keypoints`、`HALPE26_SKELETON` 定数を `build_skeleton(present)` に置換（体幹は Spine/Thorax の有無で Neck–Thorax–Spine–Hip ⇄ Neck–Hip を切り替え、同位置挿入で描画順維持＝26点C3Dの描画は変更前と同一）。起動時にマーカー構成を報告、既知マーカー0個のみエラー。CLI無変更）
+- **feat-022**: render_keypoints.py --no-png オプション（MP4のみ出力）（2026-07-03完了、`--no-png --mp4` で連番PNG保存（`cv2.imwrite`。数万フレーム処理の支配的ボトルネック）をスキップしMP4のみ出力。`--no-png` 単独指定は重い処理前に `parser.error()` で拒否（終了コード2）。既存 `frame_*.png` は削除・上書きしない非破壊方針。PNGスキップ時の進捗表示は `[i/n] frame <番号> -> mp4`。`--no-png` なしの挙動は変更前と完全同一）
