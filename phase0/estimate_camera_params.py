@@ -41,6 +41,10 @@ MIN_POINTS_DIST4_FIXCENTER = 12  # 4係数+主点固定: 12変数
 MIN_POINTS_DIST5_FIXCENTER = 14  # 5係数+主点固定: 13変数
 MIN_POINTS_DIST8 = 20            # 8係数: 18変数
 MIN_POINTS_DIST8_FIXCENTER = 18  # 8係数+主点固定: 16変数
+MIN_POINTS_DIST2 = 13            # 放射2係数・接線ゼロ: 12変数
+MIN_POINTS_DIST2_FIXCENTER = 10  # 放射2係数・接線ゼロ+主点固定: 10変数
+MIN_POINTS_DIST3 = 14            # 放射3係数・接線ゼロ: 13変数
+MIN_POINTS_DIST3_FIXCENTER = 11  # 放射3係数・接線ゼロ+主点固定: 11変数
 
 
 # ========================================
@@ -81,6 +85,34 @@ def project_dist5_fix_center(params, points_3d, cx, cy):
     tvec = params[10:13]
     K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     dist = np.array([k1, k2, p1, p2, k3])
+    projected, _ = cv2.projectPoints(
+        points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
+    )
+    return projected.reshape(-1, 2)
+
+
+def project_dist2_fix_center(params, points_3d, cx, cy):
+    """放射2係数（k1,k2）、接線ゼロ、主点固定（10変数）"""
+    fx, fy = params[0:2]
+    k1, k2 = params[2:4]
+    rvec = params[4:7]
+    tvec = params[7:10]
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    dist = np.array([k1, k2, 0.0, 0.0])
+    projected, _ = cv2.projectPoints(
+        points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
+    )
+    return projected.reshape(-1, 2)
+
+
+def project_dist3_fix_center(params, points_3d, cx, cy):
+    """放射3係数（k1,k2,k3）、接線ゼロ、主点固定（11変数）"""
+    fx, fy = params[0:2]
+    k1, k2, k3 = params[2:5]
+    rvec = params[5:8]
+    tvec = params[8:11]
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    dist = np.array([k1, k2, 0.0, 0.0, k3])
     projected, _ = cv2.projectPoints(
         points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
     )
@@ -139,6 +171,34 @@ def project_dist5(params, points_3d):
     tvec = params[12:15]
     K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     dist = np.array([k1, k2, p1, p2, k3])
+    projected, _ = cv2.projectPoints(
+        points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
+    )
+    return projected.reshape(-1, 2)
+
+
+def project_dist2(params, points_3d):
+    """放射2係数（k1,k2）、接線ゼロ（12変数）"""
+    fx, fy, cx, cy = params[0:4]
+    k1, k2 = params[4:6]
+    rvec = params[6:9]
+    tvec = params[9:12]
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    dist = np.array([k1, k2, 0.0, 0.0])
+    projected, _ = cv2.projectPoints(
+        points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
+    )
+    return projected.reshape(-1, 2)
+
+
+def project_dist3(params, points_3d):
+    """放射3係数（k1,k2,k3）、接線ゼロ（13変数）"""
+    fx, fy, cx, cy = params[0:4]
+    k1, k2, k3 = params[4:7]
+    rvec = params[7:10]
+    tvec = params[10:13]
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    dist = np.array([k1, k2, 0.0, 0.0, k3])
     projected, _ = cv2.projectPoints(
         points_3d, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist
     )
@@ -489,7 +549,8 @@ def _run_extrinsic_estimation(config_path: str, toml_path: str, output_path: str
 
 
 def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: bool,
-                   intrinsic_toml: str = None, output_path: str = None):
+                   intrinsic_toml: str = None, output_path: str = None,
+                   zero_tangent: bool = False):
     """メイン処理"""
 
     # K既知モード
@@ -517,7 +578,15 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
     print(f"3D座標: {points_3d_path}")
     print(f"2D座標: {points_2d_path}")
     print(f"画像サイズ: {img_width} x {img_height}")
-    print(f"歪みモデル: {'8係数（広角）' if use_wide else ('5係数' if use_k3 else '4係数')}")
+    if zero_tangent:
+        dist_model_str = '3係数（放射のみ）' if use_k3 else '2係数（放射のみ）'
+    elif use_wide:
+        dist_model_str = '8係数（広角）'
+    elif use_k3:
+        dist_model_str = '5係数'
+    else:
+        dist_model_str = '4係数'
+    print(f"歪みモデル: {dist_model_str}")
     print(f"主点固定: {'有効 (cx={}, cy={})'.format(cx_fixed, cy_fixed) if fix_center else '無効'}")
     
     # データ読み込み
@@ -535,13 +604,17 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
     # 必要点数の決定
     if use_wide:
         min_points = MIN_POINTS_DIST8_FIXCENTER if fix_center else MIN_POINTS_DIST8
+    elif zero_tangent and use_k3:
+        min_points = MIN_POINTS_DIST3_FIXCENTER if fix_center else MIN_POINTS_DIST3
+    elif zero_tangent:
+        min_points = MIN_POINTS_DIST2_FIXCENTER if fix_center else MIN_POINTS_DIST2
     elif use_k3:
         min_points = MIN_POINTS_DIST5_FIXCENTER if fix_center else MIN_POINTS_DIST5
     else:
         min_points = MIN_POINTS_DIST4_FIXCENTER if fix_center else MIN_POINTS_DIST4
-    
+
     estimate_distortion = num_points >= min_points
-    
+
     # モード決定のログ
     if use_wide:
         mode_str = ("主点固定" if fix_center else "主点推定") + " + 8係数広角"
@@ -549,6 +622,18 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
             mode_str += "（16変数）"
         else:
             mode_str += "（18変数）"
+    elif zero_tangent and fix_center:
+        mode_str = "主点固定 + 接線歪みゼロ"
+        if use_k3:
+            mode_str += " + k3あり（11変数）"
+        else:
+            mode_str += " + k3なし（10変数）"
+    elif zero_tangent:
+        mode_str = "主点推定 + 接線歪みゼロ"
+        if use_k3:
+            mode_str += " + k3あり（13変数）"
+        else:
+            mode_str += " + k3なし（12変数）"
     elif fix_center:
         mode_str = "主点固定"
         if use_k3:
@@ -621,6 +706,50 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
             tvec_opt = params_opt[13:16]
 
             projected_opt = project_dist8_fix_center(params_opt, points_3d, cx_fixed, cy_fixed)
+
+        elif estimate_distortion and zero_tangent and use_k3:
+            # 放射3係数（k1,k2,k3）、接線ゼロ、主点固定（11変数）
+            params_init = np.array([
+                fx_init, fy_init,
+                0.0, 0.0, 0.0,  # k1, k2, k3
+                rvec_init[0], rvec_init[1], rvec_init[2],
+                tvec_init[0], tvec_init[1], tvec_init[2]
+            ])
+
+            residual_func = make_residual_fix_center(project_dist3_fix_center, cx_fixed, cy_fixed)
+            result = least_squares(residual_func, params_init, args=(points_3d, points_2d), method='lm', verbose=0)
+
+            params_opt = result.x
+            fx_opt, fy_opt = params_opt[0:2]
+            cx_opt, cy_opt = cx_fixed, cy_fixed
+            k1_opt, k2_opt, k3_opt = params_opt[2:5]
+            p1_opt, p2_opt = 0.0, 0.0
+            rvec_opt = params_opt[5:8]
+            tvec_opt = params_opt[8:11]
+
+            projected_opt = project_dist3_fix_center(params_opt, points_3d, cx_fixed, cy_fixed)
+
+        elif estimate_distortion and zero_tangent:
+            # 放射2係数（k1,k2）、接線ゼロ、主点固定（10変数）
+            params_init = np.array([
+                fx_init, fy_init,
+                0.0, 0.0,  # k1, k2
+                rvec_init[0], rvec_init[1], rvec_init[2],
+                tvec_init[0], tvec_init[1], tvec_init[2]
+            ])
+
+            residual_func = make_residual_fix_center(project_dist2_fix_center, cx_fixed, cy_fixed)
+            result = least_squares(residual_func, params_init, args=(points_3d, points_2d), method='lm', verbose=0)
+
+            params_opt = result.x
+            fx_opt, fy_opt = params_opt[0:2]
+            cx_opt, cy_opt = cx_fixed, cy_fixed
+            k1_opt, k2_opt = params_opt[2:4]
+            p1_opt, p2_opt, k3_opt = 0.0, 0.0, 0.0
+            rvec_opt = params_opt[4:7]
+            tvec_opt = params_opt[7:10]
+
+            projected_opt = project_dist2_fix_center(params_opt, points_3d, cx_fixed, cy_fixed)
 
         elif estimate_distortion and use_k3:
             # 5係数歪み、主点固定（13変数）
@@ -709,6 +838,48 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
             tvec_opt = params_opt[15:18]
 
             projected_opt = project_dist8(params_opt, points_3d)
+
+        elif estimate_distortion and zero_tangent and use_k3:
+            # 放射3係数（k1,k2,k3）、接線ゼロ（13変数）
+            params_init = np.array([
+                fx_init, fy_init, cx_init, cy_init,
+                0.0, 0.0, 0.0,
+                rvec_init[0], rvec_init[1], rvec_init[2],
+                tvec_init[0], tvec_init[1], tvec_init[2]
+            ])
+
+            residual_func = make_residual(project_dist3)
+            result = least_squares(residual_func, params_init, args=(points_3d, points_2d), method='lm', verbose=0)
+
+            params_opt = result.x
+            fx_opt, fy_opt, cx_opt, cy_opt = params_opt[0:4]
+            k1_opt, k2_opt, k3_opt = params_opt[4:7]
+            p1_opt, p2_opt = 0.0, 0.0
+            rvec_opt = params_opt[7:10]
+            tvec_opt = params_opt[10:13]
+
+            projected_opt = project_dist3(params_opt, points_3d)
+
+        elif estimate_distortion and zero_tangent:
+            # 放射2係数（k1,k2）、接線ゼロ（12変数）
+            params_init = np.array([
+                fx_init, fy_init, cx_init, cy_init,
+                0.0, 0.0,
+                rvec_init[0], rvec_init[1], rvec_init[2],
+                tvec_init[0], tvec_init[1], tvec_init[2]
+            ])
+
+            residual_func = make_residual(project_dist2)
+            result = least_squares(residual_func, params_init, args=(points_3d, points_2d), method='lm', verbose=0)
+
+            params_opt = result.x
+            fx_opt, fy_opt, cx_opt, cy_opt = params_opt[0:4]
+            k1_opt, k2_opt = params_opt[4:6]
+            p1_opt, p2_opt, k3_opt = 0.0, 0.0, 0.0
+            rvec_opt = params_opt[6:9]
+            tvec_opt = params_opt[9:12]
+
+            projected_opt = project_dist2(params_opt, points_3d)
 
         elif estimate_distortion and use_k3:
             # 5係数歪み（15変数）
@@ -905,11 +1076,18 @@ def main():
                         help='内部パラメータTOMLファイル（指定時はK既知モード）')
     parser.add_argument('--output', default=None,
                         help='推定結果の出力先TOMLファイル（K既知モードのみ）')
+    parser.add_argument('--zero-tangent', action='store_true',
+                        help='接線歪み係数 p1, p2 を 0 に固定する（放射歪みのみ推定）')
 
     args = parser.parse_args()
 
     if not Path(args.config).exists():
         print(f"エラー: 設定ファイルが見つかりません: {args.config}")
+        return 1
+
+    # --zero-tangent と --wide の併用エラー（重い処理の前に判定）
+    if args.zero_tangent and args.wide:
+        print("エラー: --zero-tangent と --wide は併用できません")
         return 1
 
     # --intrinsic-toml 指定時の警告と存在確認
@@ -921,6 +1099,8 @@ def main():
             ignored.append('--wide')
         if args.fix_center:
             ignored.append('--fix-center')
+        if args.zero_tangent:
+            ignored.append('--zero-tangent')
         if ignored:
             print(f"警告: --intrinsic-toml 指定時は {', '.join(ignored)} は無視されます")
 
@@ -956,7 +1136,8 @@ def main():
 
     result = run_estimation(args.config, use_k3, args.wide, args.fix_center,
                             intrinsic_toml=args.intrinsic_toml,
-                            output_path=args.output if args.intrinsic_toml else None)
+                            output_path=args.output if args.intrinsic_toml else None,
+                            zero_tangent=args.zero_tangent)
     if result:
         return result
     return 0

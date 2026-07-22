@@ -72,6 +72,9 @@ uv run python estimate_camera_params.py data/config.yaml --wide
 # 広角 + 主点固定
 uv run python estimate_camera_params.py data/config.yaml --wide --fix-center
 
+# 接線歪みゼロ固定（p1=p2=0、放射歪みのみ推定。--fix-center/--k3 と併用可、--wide とは併用不可）
+uv run python estimate_camera_params.py data/config.yaml --fix-center --zero-tangent
+
 # 推定結果の検証（Ground Truth比較、レベル1/2検証）
 uv run python phase0_verification.py data/config.yaml
 
@@ -250,6 +253,7 @@ image_height: 540
 | `--fix-center --k3` | k1, k2, p1, p2, k3 | 画像中心に固定 |
 | `--wide` | k1, k2, p1, p2, k3, k4, k5, k6 | 推定 |
 | `--wide --fix-center` | k1, k2, p1, p2, k3, k4, k5, k6 | 画像中心に固定 |
+| `--zero-tangent` | k1, k2（p1, p2 は0固定。`--k3` 併用で k3 も推定、`--fix-center` 併用可、`--wide` とは併用不可） | オプションに従う |
 | `--intrinsic-toml` | TOML読み込み（K既知、R,tのみ推定） | TOML読み込み |
 
 ## ドメイン知識
@@ -412,3 +416,4 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト（2026-07-02完了、`phase4/filter_c3d.py` 新規。C3D→C3Dの独立前処理で、リフトアップ推定ジッターを Butterworth 2次 filtfilt（実効4次・ゼロ位相）で除去。`--cutoff`（既定6.0Hz）/`--rate`（point rate欠損時の補完専用）/`--max-gap`（既定10。超過ギャップはセグメント分割で独立フィルタ、無効サンプルは無効のまま維持）/`--output`（既定 `<入力>_filtered.c3d`）。入力は本プロジェクト規約のC3D（mm / +Z / +Y、first_frame 1〜65534）限定で規約外はエラー。phase4 に scipy>=1.11 追加）
 - **feat-021**: render_keypoints.py 欠損マーカー許容（22点C3D対応）（2026-07-02完了、既知マーカーを `KEYPOINT_NAMES`（Halpe26 26点 + Spine/Thorax の28点）に拡張し、C3Dに無い既知マーカーは valid=False で点・ボーンを描画スキップ。`extract_halpe26` → `extract_keypoints`、`HALPE26_SKELETON` 定数を `build_skeleton(present)` に置換（体幹は Spine/Thorax の有無で Neck–Thorax–Spine–Hip ⇄ Neck–Hip を切り替え、同位置挿入で描画順維持＝26点C3Dの描画は変更前と同一）。起動時にマーカー構成を報告、既知マーカー0個のみエラー。CLI無変更）
 - **feat-022**: render_keypoints.py --no-png オプション（MP4のみ出力）（2026-07-03完了、`--no-png --mp4` で連番PNG保存（`cv2.imwrite`。数万フレーム処理の支配的ボトルネック）をスキップしMP4のみ出力。`--no-png` 単独指定は重い処理前に `parser.error()` で拒否（終了コード2）。既存 `frame_*.png` は削除・上書きしない非破壊方針。PNGスキップ時の進捗表示は `[i/n] frame <番号> -> mp4`。`--no-png` なしの挙動は変更前と完全同一）
+- **feat-023**: estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent）（2026-07-22完了、通常モードで p1, p2 を0固定し放射歪みのみ推定（`CALIB_ZERO_TANGENT_DIST` 相当）。画像端の基準点偏在で接線歪みが誤差吸収弁となり異常値（E0085-01 の p2=0.052）に収束する問題への対策。`project_dist2`/`project_dist3` の主点固定・推定版4関数と最小点数定数（DIST2: 13/10、DIST3: 14/11）を追加。`--fix-center`/`--k3` 併用可、`--wide` 併用はエラー、`--intrinsic-toml` 時は警告して無視。出力TOML/CSVは既存レイアウトのまま p1, p2 に 0.0。`--zero-tangent` なしの挙動は変更前と完全同一）

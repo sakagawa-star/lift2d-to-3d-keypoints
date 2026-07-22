@@ -2,6 +2,17 @@
 
 ## リリース履歴
 
+### 2026-07-22
+
+- **feat-023**: estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent）
+  - 通常モード（K未知）で接線歪み係数 p1, p2 を 0 に固定し放射歪み（k1, k2、`--k3` 併用時は k3 も）のみを推定する `--zero-tangent` フラグを追加。E0085-01 で画像左端の基準点（基準_018/051）の残差を接線歪みが吸収し p2=0.052 という物理的にありえない値に収束した問題（OpenCV `CALIB_ZERO_TANGENT_DIST` 相当の対策）
+  - 投影関数4つ（`project_dist2`/`project_dist3` の主点固定・主点推定版）と最小点数定数4つ（DIST2: 13/10、DIST3: 14/11）を追加。既存8分岐には触れず、`--zero-tangent` なしの動作・出力は変更前と完全同一
+  - `--fix-center`/`--k3` と併用可（10〜13変数の4モード）。`--wide` とは併用不可でエラー終了（終了コード1）、`--intrinsic-toml` 指定時は既存フラグ同様に警告して無視
+  - 出力互換: TOML `distortions` は既存の4（k3時5）要素レイアウトのまま p1, p2 位置に 0.0（`convert_toml_to_csv.py`・K既知モード入力の互換維持）。`run_estimation` の `zero_tangent` 引数は末尾追加で既存呼び出し互換
+  - E0085 実データ確認: p2 異常が解消し樽型放射歪み（k1=-0.232, k2=0.281）の妥当な解に収束（RMSE 2.85→3.86 px）
+  - テスト: `tests/test_feat023_zero_tangent.py` 新規15件（投影関数一致・4モード真値復元・併用バリデーション・最小点数境界4種・既存経路回帰なし）
+  - Codexレビュー3サイクル（中: run_estimation 引数順の互換性・点数不足時のk3出力形式の矛盾・Must範囲テスト不足を解消）。実装は Sonnet サブエージェントが design.md 準拠で実施
+
 ### 2026-07-03
 
 - **feat-022**: render_keypoints.py --no-png オプション（MP4のみ出力）
