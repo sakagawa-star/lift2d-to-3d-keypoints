@@ -74,7 +74,9 @@
 - **概要**: カメラ名・アーマチュア名・アンカー名・出力パスを CLI で指定する。
 - **入力**: `--` 以降のスクリプト引数（Blender 規約）。
   - `--camera <name>`（必須）: カメラオブジェクト名（例: `Cam_FPS`）
-  - `--armature <name>`（任意、デフォルト `session001_f145749_world300`）: アーマチュア名
+  - `--armature <name>`（任意、デフォルト `E00000`。2026-07-22 bug-002: デフォルトを
+    session001_f145749_world300 から E00000 に変更。旧名アーマチュアの .blend は
+    `--armature session001_f145749_world300` を明示指定する）: アーマチュア名
   - `--anchor <name>`（任意、デフォルト `Cam_Anchor`）: アンカー Empty 名
   - `--output <path>`（任意、デフォルト `data/<カメラ名>_poses.json`）: 出力 JSON パス
 - **出力**: 解析済み引数（内部）。省略時のデフォルト補完。
@@ -164,5 +166,5 @@
 - **Won't**: アーマチュアが無い .blend（コンストレイント駆動の `FPS-camera.blend` 等）への自動対応。
   それは既存 `camera_pose.py` の担当とし、本スクリプトはアーマチュア構成専用とする。
 
-- **MVP の範囲**: FR-001〜FR-005 を満たし、`blender -b 2D-Lift.blend --python fps_camera_pose.py --
+- **MVP の範囲**: FR-001〜FR-005 を満たし、`blender -b session001_world_22pt.blend --python fps_camera_pose.py --
   --camera Cam_FPS` で頭部追従した `c2w` を含む JSON を出力できること。

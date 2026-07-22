@@ -22,6 +22,8 @@ Blender 4.5.5 で `2D-Lift.blend` を `-b` で検査した結果（2026-07-01 �
 
 - シーン構成は参考資料（`fps_camera_handler_reference.md`）と一致
   - アーマチュア `session001_f145749_world300`（22ボーン、`LEye`/`REye`/`LEar`/`REar`/`Nose`/`Head`/`Neck` を含む）
+    （2026-07-22 bug-002: デフォルトを session001_f145749_world300 から E00000 に変更。
+    旧名アーマチュアの .blend は `--armature session001_f145749_world300` を明示指定する）
   - Empty `Cam_Anchor`：ARMATURE コンストレイントで `LEye`+`REye`（各 weight 1.0）→ 両目中点
   - カメラ `Cam_FPS`：`Cam_Anchor` の子、ローカル回転ゼロ
 - `frame_set` した際のカメラ `matrix_world`：

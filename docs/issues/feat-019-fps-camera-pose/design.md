@@ -54,7 +54,9 @@ phase4/
 
 ```python
 KIRI_MODIFIER_NAME = "KIRI_3DGS_Render_GN"          # 既存 camera_pose.py と同一
-DEFAULT_ARMATURE_NAME = "session001_f145749_world300"
+DEFAULT_ARMATURE_NAME = "E00000"
+# （2026-07-22 bug-002: デフォルトを session001_f145749_world300 から E00000 に変更。
+#  旧名アーマチュアの .blend は --armature session001_f145749_world300 を明示指定する）
 DEFAULT_ANCHOR_NAME = "Cam_Anchor"
 # 姿勢計算に使うボーン名（Halpe/参考資料準拠、固定）
 BONE_LEYE = "LEye"; BONE_REYE = "REye"
@@ -321,7 +323,7 @@ CLAUDE.md「テスト」の方針に従い、以下を実施し結果を `tests/
 （`bpy` 依存のため pytest では `compute_anchor_rotation_euler` の純関数部分＋引数解析を対象とし、
 統合検証は Blender 実行ログで確認する。）
 
-1. **ヘッドレス出力**: `blender -b data/Blender/2D-Lift.blend --python fps_camera_pose.py -- --camera Cam_FPS`
+1. **ヘッドレス出力**: `blender -b data/Blender/session001_world_22pt.blend --python fps_camera_pose.py -- --camera Cam_FPS`
    で JSON が出力され、フレーム数 = `frame_end - frame_start + 1` である。
 2. **向きの追従**: 出力 JSON の複数フレームで `c2w` の回転成分が変化する（凍結していない）。
 3. **GUI一致（最終判定基準）**: 対話GUIでハンドラ有効時の同フレーム `Cam_FPS.matrix_world` と、

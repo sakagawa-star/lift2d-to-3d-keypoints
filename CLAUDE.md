@@ -102,8 +102,8 @@ blender -b data/FPS-camera.blend --python camera_pose.py -- --camera FPSCamera
 # 1b. FPS頭部追従カメラのポーズ書き出し（feat-019。アーマチュア＋アンカー＋子カメラ構成の .blend 用）
 #     向きを与える frame_change_post ハンドラは -b で発火しないため、姿勢計算をスクリプトに内蔵。
 #     ヘッドレスでも頭部追従した c2w を出力する。実行は Blender 4.5.5（下記フルパス）。
-#     --camera（必須）、--armature（既定 session001_f145749_world300）、--anchor（既定 Cam_Anchor）、--output
-/home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender -b data/Blender/2D-Lift.blend \
+#     --camera（必須）、--armature（既定 E00000）、--anchor（既定 Cam_Anchor）、--output
+/home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender -b data/Blender/session001_world_22pt.blend \
     --python fps_camera_pose.py -- --camera Cam_FPS --output data/Cam_FPS_poses.json
 
 # 1c. C3Dキーポイントの時間方向平滑化（feat-020。Blender・GPU不要）

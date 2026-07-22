@@ -107,5 +107,5 @@ class TestConstants:
 
     def test_default_names(self):
         """デフォルトのアーマチュア名・アンカー名が対象.blend構成であること"""
-        assert DEFAULT_ARMATURE_NAME == 'session001_f145749_world300'
+        assert DEFAULT_ARMATURE_NAME == 'E00000'
         assert DEFAULT_ANCHOR_NAME == 'Cam_Anchor'

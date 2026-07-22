@@ -4,6 +4,13 @@
 
 ### 2026-07-22
 
+- **bug-002**: fps_camera_pose.py デフォルトアーマチュア名変更にテスト・ドキュメント未追随
+  - ユーザーが手動で行った仕様変更（`DEFAULT_ARMATURE_NAME` を `session001_f145749_world300` → `E00000`。現用 .blend のアーマチュア改名に追随）を正式に取り込み、未追随だったテスト・ドキュメントを同期。`uv run pytest -v` が常に1件失敗する状態を解消
+  - 変更: テスト期待値を `E00000` に更新、feat-019 の requirements/design/README に変更注記、参考資料に冒頭注記、CLAUDE.md の既定値記述を更新。`fps_camera_pose.py` docstring と feat-019 ドキュメント・CLAUDE.md の実行例パスを現存しない `2D-Lift.blend` から実在する `session001_world_22pt.blend` に更新
+  - 後方互換: 旧名アーマチュアの .blend をデフォルト実行すると構成検証で exit(1) する明示的な非互換（移行手順: `--armature session001_f145749_world300` を明示指定）。現用 .blend に旧名は含まれず（バイナリ検索で0件）、旧名デフォルト運用は現存しない
+  - 検証: pytest 全件 167 passed / 1 skipped（`tests/results/bug-002_test_result.txt`）。Blender 4.5.5 ヘッドレスで `session001_world_22pt.blend` を `--armature` 省略実行し exit 0・9000フレームのポーズJSON生成を確認
+  - Codexレビュー3サイクル（高: bugfix/仕様変更の位置づけ・feat-019文書の一貫性・実機確認の欠如、中: 後方互換影響の明記・docstring実行例の取り残しを解消）。実装は Sonnet サブエージェントが investigation.md 準拠で実施
+
 - **feat-023**: estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent）
   - 通常モード（K未知）で接線歪み係数 p1, p2 を 0 に固定し放射歪み（k1, k2、`--k3` 併用時は k3 も）のみを推定する `--zero-tangent` フラグを追加。E0085-01 で画像左端の基準点（基準_018/051）の残差を接線歪みが吸収し p2=0.052 という物理的にありえない値に収束した問題（OpenCV `CALIB_ZERO_TANGENT_DIST` 相当の対策）
   - 投影関数4つ（`project_dist2`/`project_dist3` の主点固定・主点推定版）と最小点数定数4つ（DIST2: 13/10、DIST3: 14/11）を追加。既存8分岐には触れず、`--zero-tangent` なしの動作・出力は変更前と完全同一

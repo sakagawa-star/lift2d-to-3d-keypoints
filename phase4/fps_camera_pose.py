@@ -6,7 +6,7 @@ JSON に書き出す。向きを与える frame_change_post ハンドラは .ble
 バックグラウンド別プロセスでは発火しないため、同じ計算を本スクリプトに内蔵する。
 
 実行例:
-    blender -b data/Blender/2D-Lift.blend --python fps_camera_pose.py -- --camera Cam_FPS
+    blender -b data/Blender/session001_world_22pt.blend --python fps_camera_pose.py -- --camera Cam_FPS
 """
 import argparse
 import json
@@ -21,7 +21,7 @@ import numpy as np
 KIRI_MODIFIER_NAME = "KIRI_3DGS_Render_GN"
 
 # デフォルトのアーマチュア名・アンカー名（対象 .blend の構成）
-DEFAULT_ARMATURE_NAME = "session001_f145749_world300"
+DEFAULT_ARMATURE_NAME = "E00000"
 DEFAULT_ANCHOR_NAME = "Cam_Anchor"
 
 # 姿勢計算に使うボーン名（Halpe/参考資料準拠、固定）
