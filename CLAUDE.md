@@ -137,6 +137,16 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
     data/Blender/keypoints.c3d \
     --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+
+# 5. 静止画モード（feat-024。キャリブ推定結果のGT比較用）
+#    --no-keypoints で C3D 不要（c3d_path は省略必須）。3DGS背景のみの
+#    still_<カメラ名>.png を1枚出力（再実行時は上書き）。--distort で TOML の歪み係数
+#    （長さ4/5/8対応）による歪みモデルレンダリング（gsplat 3DGUT 経路。--distort は
+#    --no-keypoints 専用）。--mp4/--start-frame 等の動画系オプションとは併用不可。
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
+    --camera cam41520554 --near-plane 0.5 --no-keypoints --distort \
+    --output-dir /tmp/calib_check
 ```
 
 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:
@@ -190,7 +200,7 @@ lift2d-to-3d-keypoints/
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── fps_camera_pose.py             # FPS頭部追従カメラのポーズ書き出し（ヘッドレスで向きを計算・内蔵。feat-019）
 │   ├── render.py                      # バッチレンダリングスクリプト
-│   ├── render_keypoints.py            # ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容、--no-png でMP4のみ出力。feat-015/016/017/021/022）
+│   ├── render_keypoints.py            # 3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容、--no-png でMP4のみ出力、--no-keypoints/--distort で歪み対応静止画モード。feat-015/016/017/021/022/024）
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   └── data/                          # データファイル（gitignore）
@@ -433,4 +443,5 @@ codex exec resume --last "ドキュメントを更新したので再レビュー
 - **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト（2026-07-02完了、`phase4/filter_c3d.py` 新規。C3D→C3Dの独立前処理で、リフトアップ推定ジッターを Butterworth 2次 filtfilt（実効4次・ゼロ位相）で除去。`--cutoff`（既定6.0Hz）/`--rate`（point rate欠損時の補完専用）/`--max-gap`（既定10。超過ギャップはセグメント分割で独立フィルタ、無効サンプルは無効のまま維持）/`--output`（既定 `<入力>_filtered.c3d`）。入力は本プロジェクト規約のC3D（mm / +Z / +Y、first_frame 1〜65534）限定で規約外はエラー。phase4 に scipy>=1.11 追加）
 - **feat-021**: render_keypoints.py 欠損マーカー許容（22点C3D対応）（2026-07-02完了、既知マーカーを `KEYPOINT_NAMES`（Halpe26 26点 + Spine/Thorax の28点）に拡張し、C3Dに無い既知マーカーは valid=False で点・ボーンを描画スキップ。`extract_halpe26` → `extract_keypoints`、`HALPE26_SKELETON` 定数を `build_skeleton(present)` に置換（体幹は Spine/Thorax の有無で Neck–Thorax–Spine–Hip ⇄ Neck–Hip を切り替え、同位置挿入で描画順維持＝26点C3Dの描画は変更前と同一）。起動時にマーカー構成を報告、既知マーカー0個のみエラー。CLI無変更）
 - **feat-022**: render_keypoints.py --no-png オプション（MP4のみ出力）（2026-07-03完了、`--no-png --mp4` で連番PNG保存（`cv2.imwrite`。数万フレーム処理の支配的ボトルネック）をスキップしMP4のみ出力。`--no-png` 単独指定は重い処理前に `parser.error()` で拒否（終了コード2）。既存 `frame_*.png` は削除・上書きしない非破壊方針。PNGスキップ時の進捗表示は `[i/n] frame <番号> -> mp4`。`--no-png` なしの挙動は変更前と完全同一）
+- **feat-024**: render_keypoints.py 歪みモデル対応レンダリング（GT比較用）（2026-07-23完了、`--no-keypoints` で C3D 不要の静止画モード（`still_<カメラ名>.png` 1枚出力）、`--distort` で TOML 歪み係数（長さ4/5/8）による歪みレンダリング（gsplat 1.5.3 の 3DGUT 経路: `with_ut=True, with_eval3d=True, packed=False` + radial/tangential 係数。静止画モード専用）。スパイクで feat-013 の「UT経路=黒い靄」は near_plane=0.01 の floater との交絡だったと実証して方式決定。動画系7オプションとの併用は parser.error() で拒否。既存の動画モードは変更前と完全同一。E0085 実データで、ピンホールでは画角外だった基準_018/051 が歪みONで2D観測値と約2px以内に画面内描画されることを確認）
 - **feat-023**: estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent）（2026-07-22完了、通常モードで p1, p2 を0固定し放射歪みのみ推定（`CALIB_ZERO_TANGENT_DIST` 相当）。画像端の基準点偏在で接線歪みが誤差吸収弁となり異常値（E0085-01 の p2=0.052）に収束する問題への対策。`project_dist2`/`project_dist3` の主点固定・推定版4関数と最小点数定数（DIST2: 13/10、DIST3: 14/11）を追加。`--fix-center`/`--k3` 併用可、`--wide` 併用はエラー、`--intrinsic-toml` 時は警告して無視。出力TOML/CSVは既存レイアウトのまま p1, p2 に 0.0。`--zero-tangent` なしの挙動は変更前と完全同一）

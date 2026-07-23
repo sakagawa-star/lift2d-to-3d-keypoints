@@ -2,6 +2,17 @@
 
 ## リリース履歴
 
+### 2026-07-23
+
+- **feat-024**: render_keypoints.py 歪みモデル対応レンダリング（GT比較用）
+  - `estimate_camera_params.py` の推定結果を視覚検証するため、`--no-keypoints`（静止画モード: 3DGS背景のみの `still_<カメラ名>.png` を1枚出力、`c3d_path` 省略必須）と `--distort`（TOML歪み係数による歪みモデルレンダリング、静止画モード専用）を追加
+  - 歪みは gsplat 1.5.3 の 3DGUT 経路（`with_ut=True, with_eval3d=True, packed=False` + `radial_coeffs`/`tangential_coeffs`）を採用。事前スパイクで feat-013 の「UT経路=黒い靄」が `near_plane=0.01` の floater との交絡だったことを実証し（UT+ゼロ歪みはピンホールと画素差0.81/255で一致）、方式を確定。`render_image` の誤った docstring 記述も修正
+  - `distortions_to_gsplat` で TOML `distortions`（長さ4/5/8）を radial 6要素 + tangential 2要素に詰め替え。`render_image` は `distort=False` を末尾引数追加で既存呼び出し互換
+  - 静止画モードで無意味な7オプション（--mp4/--mp4-fps/--no-png/--start-frame/--end-frame/--no-occlusion/--occlusion-margin）は `parser.error()` で明示拒否。`--occlusion-margin` は default=None 化で明示指定を厳密検出（検証後に既定値0.05を補完）。動画モードの動作は変更前と完全同一
+  - E0085 実データで検証: 歪みONで基準_018/051（ピンホールでは画角外）が2D観測値と約2px以内の位置に画面内描画されることを確認（feat-023 の起点問題を視覚的に解決）
+  - テスト: `tests/test_feat024_distort_render.py` 新規20件（係数変換・バリデーション・rasterization引数のフェイクtorch/gsplat注入検証・出力ファイル名）。全体 187 passed / 1 skipped
+  - Codexレビュー: スパイク計画1サイクル（高: packed=False 必須の見落とし）+ 本設計2サイクル（中4件: 上書き方針・バリデーション順序・係数事前検証・rootテスト環境）。実装は Sonnet サブエージェントが design.md 準拠で実施
+
 ### 2026-07-22
 
 - **bug-002**: fps_camera_pose.py デフォルトアーマチュア名変更にテスト・ドキュメント未追随

@@ -30,3 +30,4 @@
 | feat-022 | 機能追加 | render_keypoints.py --no-png オプション（MP4のみ出力） | Closed |
 | feat-023 | 機能追加 | estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent） | Closed |
 | bug-002 | 不具合 | fps_camera_pose.py デフォルトアーマチュア名変更にテスト・ドキュメント未追随 | Closed |
+| feat-024 | 機能追加 | render_keypoints.py 歪みモデル対応レンダリング（GT比較用） | Closed |

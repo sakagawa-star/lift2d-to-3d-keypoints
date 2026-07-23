@@ -116,14 +116,40 @@ def camera_to_viewmat(cam: dict) -> np.ndarray:
     return viewmat
 
 
+def distortions_to_gsplat(D: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """TOML歪み係数（OpenCV並び、長さ4/5/8）を gsplat 用に詰め替える。
+
+    Returns:
+        (radial, tangential): radial は6要素 [k1,k2,k3,k4,k5,k6]、
+        tangential は2要素 [p1,p2]（いずれも float64 numpy）
+    Raises:
+        ValueError: 長さが4/5/8以外
+    """
+    D = np.asarray(D, dtype=np.float64).reshape(-1)
+    n = D.shape[0]
+    tangential = D[2:4]
+    if n == 4:
+        radial = np.array([D[0], D[1], 0.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    elif n == 5:
+        radial = np.array([D[0], D[1], D[4], 0.0, 0.0, 0.0], dtype=np.float64)
+    elif n == 8:
+        radial = np.array([D[0], D[1], D[4], D[5], D[6], D[7]], dtype=np.float64)
+    else:
+        raise ValueError(f"歪み係数の長さは4/5/8のいずれかである必要があります（実際: {n}）")
+    return radial, tangential
+
+
 def render_image(
     gaussians: dict, cam: dict, near_plane: float, background=(0.0, 0.0, 0.0),
-    return_depth: bool = False,
+    return_depth: bool = False, distort: bool = False,
 ):
-    """gsplat でピンホールレンダリングする。
+    """gsplat でレンダリングする。
 
-    `render.py` の `render_frame` と同一の古典経路（歪み・UT なし）。歪みを gsplat の
-    UT経路に乗せると黒い靄・品質劣化が出るため使わない。
+    `distort=False`（既定）: `render.py` の `render_frame` と同一の古典経路（歪み・UT なし）。
+    `distort=True`: TOMLの歪み係数を gsplat の3DGUT経路（`with_ut=True, with_eval3d=True,
+    packed=False` + radial/tangential係数）に乗せてOpenCV歪みモデル込みでレンダリングする
+    （feat-024。スパイクで、靄の真因は near_plane=0.01 の floater であり、
+    `with_eval3d=True` + 適切な near_plane なら UT経路は実用可であることを確認済み）。
 
     device/dtype は CUDA・float32 を明示する。`cam["K"]` は float64 numpy、
     `camera_to_viewmat` は CPU float32 を返すため、明示しないと gsplat の CUDAカーネルで
@@ -136,6 +162,7 @@ def render_image(
         background: 背景色 RGB [0-1]
         return_depth: True なら深度マップ・αマップも返す（オクルージョン判定用）。
             既定 False のときは feat-015 と完全に同一挙動（戻り値は BGR のみ）
+        distort: True なら TOMLの歪み係数（`cam["D"]`）で3DGUT経路レンダリングする（feat-024）
 
     Returns:
         return_depth=False: (H,W,3) uint8 BGR
@@ -158,26 +185,50 @@ def render_image(
     render_mode = "RGB+ED" if return_depth else "RGB"
 
     with torch.no_grad():
-        rendered, alphas, _meta = rasterization(
-            means=gaussians["means"],
-            quats=gaussians["quats"],
-            scales=gaussians["scales"],
-            opacities=gaussians["opacities"],
-            colors=torch.cat([gaussians["sh0"], gaussians["sh_rest"]], dim=1),
-            viewmats=viewmat.unsqueeze(0),
-            Ks=K.unsqueeze(0),
-            width=cam["width"],
-            height=cam["height"],
-            sh_degree=sh_degree,
-            near_plane=near_plane,
-            far_plane=1e10,
-            # 古典ピンホール経路を保証するため、gsplat のデフォルトと同値でも明示的に渡す
-            # （バージョン差異でデフォルトが変わっても挙動を固定。要求仕様 3.2）
-            camera_model="pinhole",
-            with_ut=False,
-            packed=True,
-            render_mode=render_mode,
-        )
+        if distort:
+            radial, tangential = distortions_to_gsplat(cam["D"])
+            rendered, alphas, _meta = rasterization(
+                means=gaussians["means"],
+                quats=gaussians["quats"],
+                scales=gaussians["scales"],
+                opacities=gaussians["opacities"],
+                colors=torch.cat([gaussians["sh0"], gaussians["sh_rest"]], dim=1),
+                viewmats=viewmat.unsqueeze(0),
+                Ks=K.unsqueeze(0),
+                width=cam["width"],
+                height=cam["height"],
+                sh_degree=sh_degree,
+                near_plane=near_plane,
+                far_plane=1e10,
+                camera_model="pinhole",
+                with_ut=True,
+                with_eval3d=True,
+                packed=False,
+                radial_coeffs=torch.tensor([radial], dtype=torch.float32, device=device),
+                tangential_coeffs=torch.tensor([tangential], dtype=torch.float32, device=device),
+                render_mode=render_mode,
+            )
+        else:
+            rendered, alphas, _meta = rasterization(
+                means=gaussians["means"],
+                quats=gaussians["quats"],
+                scales=gaussians["scales"],
+                opacities=gaussians["opacities"],
+                colors=torch.cat([gaussians["sh0"], gaussians["sh_rest"]], dim=1),
+                viewmats=viewmat.unsqueeze(0),
+                Ks=K.unsqueeze(0),
+                width=cam["width"],
+                height=cam["height"],
+                sh_degree=sh_degree,
+                near_plane=near_plane,
+                far_plane=1e10,
+                # 古典ピンホール経路を保証するため、gsplat のデフォルトと同値でも明示的に渡す
+                # （バージョン差異でデフォルトが変わっても挙動を固定。要求仕様 3.2）
+                camera_model="pinhole",
+                with_ut=False,
+                packed=True,
+                render_mode=render_mode,
+            )
 
     # 先頭3chがRGB（RGB / RGB+ED いずれでも先頭3ch）。背景合成は従来同様
     rgb = rendered.squeeze(0)[..., :3]
@@ -511,9 +562,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("ply_path", help="3DGS PLYファイルパス")
     parser.add_argument("toml_path", help="キャリブレーションTOMLパス")
-    parser.add_argument("c3d_path",
+    parser.add_argument("c3d_path", nargs="?", default=None,
                         help="人体キーポイントC3Dパス（Halpe26 + Spine/Thorax の既知28マーカー。"
-                             "欠損許容、全フレームを使用）")
+                             "欠損許容、全フレームを使用。--no-keypoints 時は省略）")
     parser.add_argument("--camera", required=True, help="TOML内の対象カメラ名")
     parser.add_argument("--near-plane", type=float, default=0.1,
                         help="near クリップ距離[m]（floater除去用、default: 0.1）")
@@ -523,7 +574,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="背景色 RGB [0-1] (default: 0 0 0)")
     parser.add_argument("--no-occlusion", action="store_true",
                         help="オクルージョン無効（全キーポイントを手前扱いで描画＝旧2D重ね描き。比較用）")
-    parser.add_argument("--occlusion-margin", type=float, default=OCCLUSION_MARGIN,
+    parser.add_argument("--occlusion-margin", type=float, default=None,
                         help=f"深度マージン[m]（3DGSよりこの値以上奥なら隠す、default: {OCCLUSION_MARGIN}）")
     parser.add_argument("--start-frame", type=int, default=None,
                         help="描画開始C3Dフレーム番号（この番号を含む、省略時は最小フレーム）")
@@ -535,12 +586,80 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="MP4フレームレート（小数可、default: C3D rate）")
     parser.add_argument("--no-png", action="store_true",
                         help="連番PNG保存をスキップしMP4のみ出力する（--mp4 と併用必須）")
+    parser.add_argument("--no-keypoints", action="store_true",
+                        help="キーポイント描画をスキップし3DGS背景のみの静止画1枚を出力"
+                             "（c3d_path 省略必須）")
+    parser.add_argument("--distort", action="store_true",
+                        help="TOMLの歪み係数で歪みモデルレンダリング（--no-keypoints 専用）")
     return parser
+
+
+def _run_still_mode(args: argparse.Namespace, cam: dict) -> int:
+    """静止画モード（--no-keypoints）を実行する。3DGS背景のみのPNGを1枚出力する。"""
+    if args.distort:
+        try:
+            distortions_to_gsplat(cam["D"])
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 1
+
+    from render import load_ply, print_ply_summary
+
+    print(f"PLYファイル読み込み中: {args.ply_path}")
+    gaussians = load_ply(args.ply_path)
+    print_ply_summary(args.ply_path, gaussians)
+
+    output_dir = args.output_dir if args.output_dir else f"./data/keypoints_{cam['name']}"
+
+    print(f"\n背景レンダリング中（near_plane={args.near_plane}, "
+          f"distort={'ON' if args.distort else 'OFF'}）...")
+    start_time = time.time()
+
+    bgr = render_image(
+        gaussians, cam, args.near_plane, tuple(args.background), distort=args.distort
+    )
+
+    os.makedirs(output_dir, exist_ok=True)
+    png_path = os.path.join(output_dir, f"still_{cam['name']}.png")
+    try:
+        ok = cv2.imwrite(png_path, bgr)
+    except cv2.error as e:
+        print(f"エラー: PNGの保存に失敗しました: {png_path}: {e}", file=sys.stderr)
+        return 1
+    if not ok:
+        print(f"エラー: PNGの保存に失敗しました: {png_path}", file=sys.stderr)
+        return 1
+
+    elapsed = time.time() - start_time
+    print(f"\n完了: {png_path} ({elapsed:.1f}秒)")
+    return 0
 
 
 def main(argv=None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # --no-keypoints / c3d_path / --distort の組み合わせ検証（重い処理前、--no-png単独チェックより前）
+    if args.no_keypoints:
+        if args.c3d_path is not None:
+            parser.error("--no-keypoints 指定時は c3d_path を渡せません（静止画モードは C3D 不要）")
+        forbidden = [("--mp4", args.mp4), ("--mp4-fps", args.mp4_fps is not None),
+                     ("--no-png", args.no_png),
+                     ("--start-frame", args.start_frame is not None),
+                     ("--end-frame", args.end_frame is not None),
+                     ("--no-occlusion", args.no_occlusion),
+                     ("--occlusion-margin", args.occlusion_margin is not None)]
+        for name, given in forbidden:
+            if given:
+                parser.error(f"--no-keypoints 指定時は {name} は使用できません")
+    else:
+        if args.c3d_path is None:
+            parser.error("c3d_path を省略する場合は --no-keypoints を指定してください")
+        if args.distort:
+            parser.error("--distort は --no-keypoints と併用してください（動画モードは未対応）")
+
+    if args.occlusion_margin is None:
+        args.occlusion_margin = OCCLUSION_MARGIN
 
     # --no-png 単独指定は出力が何もなくなるため、重い処理に入る前に拒否する
     if args.no_png and not args.mp4:
@@ -554,6 +673,9 @@ def main(argv=None) -> int:
         print(e, file=sys.stderr)
         return 1
     print(f"対象カメラ: {cam['name']} ({cam['width']}x{cam['height']})")
+
+    if args.no_keypoints:
+        return _run_still_mode(args, cam)
 
     # C3Dロード（全フレーム）・既知マーカー存在チェック（重いPLY/torchロード前に検証）
     print(f"C3D読み込み中（全フレーム）: {args.c3d_path}")
