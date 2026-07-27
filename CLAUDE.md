@@ -34,7 +34,7 @@
   - Blender（.blend / .ply ファイル、3Dモデル・カメラポーズ書き出し）
   - gsplat（CUDA、phase4 のバッチレンダリング）
 - **詳細**: `docs/TECH_STACK.md` を参照
-- **注意**: phase4 の gsplat レンダリングは環境変数 `TORCH_CUDA_ARCH_LIST="9.0+PTX"` が必須（gtune2 環境: RTX 5060 Ti + CUDA 12.6）。理由と恒久対策は「スクリプト実行 > phase4」を参照
+- **注意**: phase4 の gsplat レンダリングは環境変数 `TORCH_CUDA_ARCH_LIST="9.0+PTX"` が必須（gtune2 環境: RTX 5060 Ti + CUDA 12.6）。理由と恒久対策は「スクリプト実行」を参照
 
 ## 環境セットアップ
 
@@ -50,106 +50,9 @@ uv sync --project phase4
 
 ## スクリプト実行
 
-### phase0（カメラパラメータ推定）
+各スクリプトの実行方法・コマンド例・オプション一覧は `README.md` を参照。phase0 のスクリプトは `phase0/`、phase4 のスクリプトは `phase4/` ディレクトリで実行する。
 
-スクリプトは `phase0/` ディレクトリで実行する。
-
-```bash
-cd phase0
-
-# 通常（主点も推定）
-uv run python estimate_camera_params.py data/config.yaml
-
-# 主点固定（cx, cyを画像中心に固定）
-uv run python estimate_camera_params.py data/config.yaml --fix-center
-
-# 主点固定 + k3
-uv run python estimate_camera_params.py data/config.yaml --fix-center --k3
-
-# 広角レンズ（8係数歪みモデル）
-uv run python estimate_camera_params.py data/config.yaml --wide
-
-# 広角 + 主点固定
-uv run python estimate_camera_params.py data/config.yaml --wide --fix-center
-
-# 接線歪みゼロ固定（p1=p2=0、放射歪みのみ推定。--fix-center/--k3 と併用可、--wide とは併用不可）
-uv run python estimate_camera_params.py data/config.yaml --fix-center --zero-tangent
-
-# 推定結果の検証（Ground Truth比較、レベル1/2検証）
-uv run python phase0_verification.py data/config.yaml
-
-# 外部パラメータ推定（K既知モード）
-uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/05520125_intrinsics.toml
-
-# TOML→CSV変換（入力TOML・出力CSVの2引数が必須）
-uv run python convert_toml_to_csv.py data/Calib_scene.toml data/camera_params.csv
-```
-
-### phase4（gsplatバッチレンダリング）
-
-スクリプトは `phase4/` ディレクトリで実行する（phase0 とは独立した uv 環境）。
-
-ワークフロー: KIRI Engine アドオンで Blender に 3DGS を展開してカメラパスを作成 → `camera_pose.py` でカメラポーズを JSON に書き出し → `render.py` で gsplat レンダリング。
-
-```bash
-cd phase4
-
-# 1. カメラポーズ書き出し（Blender内スクリプト。GUIのScriptingタブまたはヘッドレスで実行）
-#    --camera でカメラオブジェクト名を指定する（必須）
-#    出力先: --output で指定。省略時は data/<カメラ名>_poses.json
-blender -b data/FPS-camera.blend --python camera_pose.py -- --camera FPSCamera
-
-# 1b. FPS頭部追従カメラのポーズ書き出し（feat-019。アーマチュア＋アンカー＋子カメラ構成の .blend 用）
-#     向きを与える frame_change_post ハンドラは -b で発火しないため、姿勢計算をスクリプトに内蔵。
-#     ヘッドレスでも頭部追従した c2w を出力する。実行は Blender 4.5.5（下記フルパス）。
-#     --camera（必須）、--armature（既定 E00000）、--anchor（既定 Cam_Anchor）、--output
-/home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender -b data/Blender/session001_world_22pt.blend \
-    --python fps_camera_pose.py -- --camera Cam_FPS --output data/Cam_FPS_poses.json
-
-# 1c. C3Dキーポイントの時間方向平滑化（feat-020。Blender・GPU不要）
-#     リフトアップ推定由来のジッターを Butterworth 2次 filtfilt（ゼロ位相）で除去し、
-#     <入力>_filtered.c3d に書き出す。平滑化済みC3Dを Blender に再インポートして
-#     fps_camera_pose.py / render_keypoints.py の入力に使う。
-#     --cutoff でカットオフ周波数（既定 6.0 Hz。下げるほど滑らか）、--max-gap で
-#     線形補間する欠損ギャップ長の上限（既定10フレーム。超過はセグメント分割）。
-#     入力は本プロジェクト規約のC3D（npz_to_c3d.py 出力: mm / +Z / +Y）限定。
-uv run python filter_c3d.py data/session001_world_22pt.c3d
-
-# 2. バッチレンダリング（dry-run: 画像保存なしで動作確認・速度計測）
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --dry-run
-
-# 3. バッチレンダリング（連番PNG + MP4出力）
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --mp4
-
-# 4. ピンホール3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、連番PNG/MP4。feat-015/016/017/021）
-#    PLY + キャリブTOML + C3D（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容、全フレーム）
-#    + --camera を渡す。C3Dに無い既知マーカーは点・ボーンを描画スキップ（22点C3D対応）。
-#    --near-plane でカメラ至近のfloaterを除去（0.01:黒い靄 → 0.5:鮮明）。
-#    深度比較で手前の3DGSに隠れる点・ボーンを隠蔽。--no-occlusion で隠蔽OFF（比較用）、
-#    --occlusion-margin で深度マージン調整（既定0.05m）。
-#    カメラ固定のため背景レンダリングはループ前に1回だけ計算し全フレームで共有する。
-#    出力は --output-dir に連番PNG（frame_<C3Dフレーム番号:06d>.png）。--mp4 でMP4も出力
-#    （fps既定はC3D rate、--mp4-fps で上書き。小数fps保持）。範囲は --start-frame/--end-frame
-#    （両端含む）。1フレームだけ見たい場合は --start-frame N --end-frame N で絞る。
-#    数万フレーム規模でMP4だけ欲しい場合は --no-png でPNG保存をスキップすると大幅に速い
-#    （--mp4 と併用必須。feat-022）。
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
-    data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
-    data/Blender/keypoints.c3d \
-    --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
-
-# 5. 静止画モード（feat-024。キャリブ推定結果のGT比較用）
-#    --no-keypoints で C3D 不要（c3d_path は省略必須）。3DGS背景のみの
-#    still_<カメラ名>.png を1枚出力（再実行時は上書き）。--distort で TOML の歪み係数
-#    （長さ4/5/8対応）による歪みモデルレンダリング（gsplat 3DGUT 経路。--distort は
-#    --no-keypoints 専用）。--mp4/--start-frame 等の動画系オプションとは併用不可。
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
-    data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
-    --camera cam41520554 --near-plane 0.5 --no-keypoints --distort \
-    --output-dir /tmp/calib_check
-```
-
-**`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境）:
+**`TORCH_CUDA_ARCH_LIST="9.0+PTX"` は必須**（2026-06-11 時点、マシン gtune2 の環境。phase4 の render.py / render_keypoints.py）:
 
 - gsplat 1.5.3 には torch 2.10+cu128 向けのビルド済み wheel がなく、初回実行時に CUDA 拡張が JIT コンパイルされる
 - 環境変数なしだと GPU（RTX 5060 Ti = sm_120）が検出され、システムの nvcc（CUDA 12.6）が sm_120 非対応のため `nvcc fatal: Unsupported gpu architecture 'compute_120'` でビルドが失敗する
@@ -459,28 +362,3 @@ git のコミット・プッシュは、Claude Code 本体が直接実行する�
 
 詳細は `docs/BACKLOG.md`（一覧）および `docs/CHANGELOG.md`（リリース履歴）を参照。
 
-- **feat-001**: 内部パラメータ既知での外部パラメータ推定（Stage 1）（2026-03-20完了、Calib_scene.toml から K を読み込み R, t のみ推定）
-- **feat-002**: estimate_camera_params.py 広角レンズ対応（2026-03-20完了、`--wide` で8係数歪みモデル）
-- **feat-003**: estimate_extrinsic.py を estimate_camera_params.py に統合（Stage 2）（2026-03-20完了、`--intrinsic-toml` で K既知モード）
-- **feat-004**: gsplatバッチレンダリングパイプライン（2026-03-21完了、PLY + カメラポーズJSON → PNG）
-- **feat-005**: render.py フレーム範囲指定オプション（2026-03-21完了、`--start-frame`/`--end-frame`）
-- **feat-006**: render.py ドライランモード（2026-03-21完了、`--dry-run` で性能計測）
-- **feat-007**: render.py MP4ファイル保存機能（2026-03-21完了、`--mp4`、NVENC/ libx264 フォールバック）
-- **feat-008**: estimate_camera_params.py 複数カメラ一括推定（2026-03-23完了、K既知モードでカンマ区切り指定）
-- **feat-009**: 三角測量による外部パラメータ検証（2026-03-23完了、`verify_triangulation.py`）
-- **feat-010**: 2D座標を静止画上にプロットして可視化（2026-04-28完了、`visualize_points_2d.py`）
-- **bug-001**: visualize_points_2d.py のパス解決を既存スクリプトと統一（2026-04-28完了）
-- **feat-011**: visualize_points_2d.py 基準点番号ラベル表示オプション（2026-06-07完了、`--label`）
-- **feat-012**: camera_pose.py カメラ名・出力先のCLIオプション化（2026-06-12完了、`--camera`/`--output`）
-- **feat-013**: 3DGSレンダリング画像への3Dキーポイント重ね描き（中止。feat-015/016 に分割して作り直し）
-- **feat-014**: ピンホール3DGSレンダリング（PNG出力、GT比較）（中止。feat-015 に作り直し）
-- **feat-015**: ピンホール3DGSレンダリング（PNG出力、GT比較）（2026-06-14完了、`render_keypoints.py` を3DGSレンダリングのみに作り直し、`--camera`/`--near-plane`/`--output`/`--background`）
-- **feat-016**: キーポイントのオクルージョン（深度による前後判定）（2026-06-14完了、`render_keypoints.py` に人体キーポイント（C3D, Halpe26 先頭フレーム）重ね描き＋深度比較によるオクルージョンを追加。`c3d_path`必須引数・`--no-occlusion`・`--occlusion-margin`、`render_image` に `return_depth` 追加）
-- **feat-017**: render_keypoints.py 全フレーム対応（連番PNG + MP4）（2026-06-14完了、C3D全フレーム描画。`load_c3d_all_frames`/`start_ffmpeg` 追加、背景レンダリングをループ前1回計算で共有。`--output-dir`/`--start-frame`/`--end-frame`/`--mp4`/`--mp4-fps`、`--output` 廃止）
-- **feat-018**: NPZ→C3D変換スクリプト（Blender io_anim_c3d 取り込み対応）（2026-06-25完了、`phase4/npz_to_c3d.py` 新規。world(X,Y,Z)m→C3D raw(Y,Z,X)×1000 mm で `c3d_to_calib` 互換。C3Dフレームは1始まり（py-c3d 16bit制約回避）。Blender正立は `UNITS='mm'`/`X_SCREEN='+Z'`/`Y_SCREEN='+Y'`（io_anim_c3d は pose bone ローカル座標+rest行列で描画するため表示鉛直は Y_SCREEN で決まる）。出力は一時ファイル→読み戻し検証→`os.replace` のアトミック確定）
-- **feat-019**: FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応）（2026-07-01完了、`phase4/fps_camera_pose.py` 新規。`camera_pose.py` は温存。向きを与える `frame_change_post` ハンドラが `-b` で発火せず向きが凍結する問題を、Frankfurt平面ベースの姿勢計算を内蔵して解消。ボーンは評価済み depsgraph から取得、アンカー回転適用後 `view_layer.update()` で子カメラへ反映。起動時＋全フレームで構成・縮退・直交・位置/向き整合を検証し違反時 exit(1)。出力は camera_pose.py と同一スキーマ＋原子的書き出し。`--camera`/`--armature`/`--anchor`/`--output`。実行は Blender 4.5.5）
-- **feat-020**: C3Dキーポイントの時間方向平滑化スクリプト（2026-07-02完了、`phase4/filter_c3d.py` 新規。C3D→C3Dの独立前処理で、リフトアップ推定ジッターを Butterworth 2次 filtfilt（実効4次・ゼロ位相）で除去。`--cutoff`（既定6.0Hz）/`--rate`（point rate欠損時の補完専用）/`--max-gap`（既定10。超過ギャップはセグメント分割で独立フィルタ、無効サンプルは無効のまま維持）/`--output`（既定 `<入力>_filtered.c3d`）。入力は本プロジェクト規約のC3D（mm / +Z / +Y、first_frame 1〜65534）限定で規約外はエラー。phase4 に scipy>=1.11 追加）
-- **feat-021**: render_keypoints.py 欠損マーカー許容（22点C3D対応）（2026-07-02完了、既知マーカーを `KEYPOINT_NAMES`（Halpe26 26点 + Spine/Thorax の28点）に拡張し、C3Dに無い既知マーカーは valid=False で点・ボーンを描画スキップ。`extract_halpe26` → `extract_keypoints`、`HALPE26_SKELETON` 定数を `build_skeleton(present)` に置換（体幹は Spine/Thorax の有無で Neck–Thorax–Spine–Hip ⇄ Neck–Hip を切り替え、同位置挿入で描画順維持＝26点C3Dの描画は変更前と同一）。起動時にマーカー構成を報告、既知マーカー0個のみエラー。CLI無変更）
-- **feat-022**: render_keypoints.py --no-png オプション（MP4のみ出力）（2026-07-03完了、`--no-png --mp4` で連番PNG保存（`cv2.imwrite`。数万フレーム処理の支配的ボトルネック）をスキップしMP4のみ出力。`--no-png` 単独指定は重い処理前に `parser.error()` で拒否（終了コード2）。既存 `frame_*.png` は削除・上書きしない非破壊方針。PNGスキップ時の進捗表示は `[i/n] frame <番号> -> mp4`。`--no-png` なしの挙動は変更前と完全同一）
-- **feat-024**: render_keypoints.py 歪みモデル対応レンダリング（GT比較用）（2026-07-23完了、`--no-keypoints` で C3D 不要の静止画モード（`still_<カメラ名>.png` 1枚出力）、`--distort` で TOML 歪み係数（長さ4/5/8）による歪みレンダリング（gsplat 1.5.3 の 3DGUT 経路: `with_ut=True, with_eval3d=True, packed=False` + radial/tangential 係数。静止画モード専用）。スパイクで feat-013 の「UT経路=黒い靄」は near_plane=0.01 の floater との交絡だったと実証して方式決定。動画系7オプションとの併用は parser.error() で拒否。既存の動画モードは変更前と完全同一。E0085 実データで、ピンホールでは画角外だった基準_018/051 が歪みONで2D観測値と約2px以内に画面内描画されることを確認）
-- **feat-023**: estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent）（2026-07-22完了、通常モードで p1, p2 を0固定し放射歪みのみ推定（`CALIB_ZERO_TANGENT_DIST` 相当）。画像端の基準点偏在で接線歪みが誤差吸収弁となり異常値（E0085-01 の p2=0.052）に収束する問題への対策。`project_dist2`/`project_dist3` の主点固定・推定版4関数と最小点数定数（DIST2: 13/10、DIST3: 14/11）を追加。`--fix-center`/`--k3` 併用可、`--wide` 併用はエラー、`--intrinsic-toml` 時は警告して無視。出力TOML/CSVは既存レイアウトのまま p1, p2 に 0.0。`--zero-tangent` なしの挙動は変更前と完全同一）
