@@ -54,6 +54,9 @@ uv run python estimate_camera_params.py data/config.yaml --wide
 # 広角 + 主点固定
 uv run python estimate_camera_params.py data/config.yaml --wide --fix-center
 
+# 接線歪みゼロ固定（p1=p2=0、放射歪みのみ推定。--fix-center/--k3 と併用可、--wide とは併用不可）
+uv run python estimate_camera_params.py data/config.yaml --fix-center --zero-tangent
+
 # K既知モード（内部パラメータTOMLからR, tのみ推定）
 uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/cam05520125_intrinsics.toml
 
@@ -68,8 +71,13 @@ uv run python verify_triangulation.py data/config_lab2.yaml data/ufukui/extrinsi
 # 推定結果の検証（Ground Truth比較）
 uv run python phase0_verification.py data/config.yaml
 
-# TOML→CSV変換
-uv run python convert_toml_to_csv.py
+# 2D座標を静止画上にプロットして可視化
+# --camera: 対象カメラ名（config の target_camera が複数指定の場合は必須）
+# --label:  基準点の番号（ObjectNameの数字部分）をラベル表示
+uv run python visualize_points_2d.py data/config.yaml --label
+
+# TOML→CSV変換（入力TOML・出力CSVの2引数が必須）
+uv run python convert_toml_to_csv.py data/Calib_scene.toml data/camera_params.csv
 ```
 
 ### 推定モード
@@ -81,6 +89,7 @@ uv run python convert_toml_to_csv.py
 | `--fix-center --k3` | k1, k2, p1, p2, k3 | 画像中心に固定 |
 | `--wide` | k1, k2, p1, p2, k3, k4, k5, k6 | 推定 |
 | `--wide --fix-center` | k1, k2, p1, p2, k3, k4, k5, k6 | 画像中心に固定 |
+| `--zero-tangent` | k1, k2（p1, p2 は0固定。`--k3` 併用で k3 も推定、`--fix-center` 併用可、`--wide` とは併用不可） | オプションに従う |
 | `--intrinsic-toml` | TOML読み込み（K既知、R,tのみ推定） | TOML読み込み |
 
 ### レンズと推奨オプション

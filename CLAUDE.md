@@ -81,8 +81,8 @@ uv run python phase0_verification.py data/config.yaml
 # 外部パラメータ推定（K既知モード）
 uv run python estimate_camera_params.py data/config_lab2.yaml --intrinsic-toml data/ufukui/05520125_intrinsics.toml
 
-# TOML→CSV変換
-uv run python convert_toml_to_csv.py
+# TOML→CSV変換（入力TOML・出力CSVの2引数が必須）
+uv run python convert_toml_to_csv.py data/Calib_scene.toml data/camera_params.csv
 ```
 
 ### phase4（gsplatバッチレンダリング）
