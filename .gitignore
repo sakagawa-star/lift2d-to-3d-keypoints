@@ -1,0 +1,46 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+.env
+.venv/
+venv/
+
+# VSCode settings
+.vscode/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.csv
+
+# Media files
+*.bmp
+*.jpg
+*.png
+*.jpeg
+*.mp4
+*.raw
+
+# Backup/temporary files
+*~
+
+# codex
+.codex/
+
+# Data files
+phase0/data/
+phase4/data/
+
+*.ply
+*.blend
+*.blend1
+
+# Codexレビューの過程ログ（結果 result.md のみ git 管理する）
+docs/issues/*/reviews/*.full.log
