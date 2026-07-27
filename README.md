@@ -34,7 +34,7 @@ uv sync --project phase4
 
 ## Run
 
-すべてのスクリプトは `phase0/` ディレクトリで実行する。
+phase0 のスクリプトは `phase0/` ディレクトリで実行する。
 
 ```bash
 cd phase0
