@@ -1,21 +1,35 @@
 # lift2d-to-3d-keypoints
 
-2D-3D点対応によるカメラパラメータ推定ツール
+2D-3D点対応によるカメラパラメータ推定ツール + 推定結果を用いた 3DGS（gsplat）レンダリング検証
 
 ## 主な機能
 
+**phase0: カメラパラメータ推定**
+
 - 2D-3D点対応によるカメラ内部・外部パラメータ推定
-- 歪み係数の推定（4係数 / 5係数 / 8係数広角対応）
+- 歪み係数の推定（4係数 / 5係数 / 8係数広角対応、接線歪みゼロ固定）
 - 内部パラメータ既知（K既知）での外部パラメータのみの推定
 - 複数カメラの一括推定（K既知モード）
 - 三角測量による外部パラメータ検証
 - Ground Truthとの比較検証
 - Calib_scene.toml / camera_params.csv 形式での結果出力
 
+**phase4: gsplatレンダリング**
+
+- 3DGS PLY + カメラポーズJSON のバッチレンダリング（連番PNG/MP4）
+- 3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、C3D入力）
+- キャリブ推定結果のGT比較用静止画レンダリング（歪みモデル対応、`--distort`）
+- Blenderからのカメラポーズ書き出し（通常カメラ / FPS頭部追従カメラ）
+- C3D前処理（NPZ→C3D変換、時間方向平滑化）
+
 ## Setup
 
-```
+```bash
+# phase0（プロジェクトルート）
 uv sync
+
+# phase4（独立した uv 環境）
+uv sync --project phase4
 ```
 
 ## Run
@@ -140,6 +154,146 @@ rotation = [0.0, 0.0, 0.0]
 translation = [0.0, 0.0, 0.0]
 fisheye = false
 ```
+
+## phase4: gsplatレンダリング
+
+phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプトは `phase4/` ディレクトリで実行する。
+
+### 実行環境の注意
+
+- **CUDA GPU 必須**（render.py / render_keypoints.py）。gsplat の CUDA 拡張が初回実行時に JIT コンパイルされるため、環境変数 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` を必ず付ける**（理由の詳細は CLAUDE.md 参照）
+- `camera_pose.py` / `fps_camera_pose.py` は Blender 内スクリプト（`blender -b ... --python ...` で実行。fps_camera_pose.py は Blender 4.5.5）
+- `npz_to_c3d.py` / `filter_c3d.py` は Blender・GPU 不要
+- データファイル（PLY・ポーズJSON・C3D・.blend）は `phase4/data/` に置く（git管理外）
+
+### スクリプト一覧
+
+| スクリプト | 役割 |
+|---|---|
+| `camera_pose.py` | Blenderカメラのポーズ（c2w）をJSONに書き出し |
+| `fps_camera_pose.py` | FPS頭部追従カメラのポーズ書き出し（ヘッドレスでも向きを計算） |
+| `npz_to_c3d.py` | リフトアップ済み3DキーポイントNPZ → C3D 変換（Blender取り込み対応） |
+| `filter_c3d.py` | C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相） |
+| `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
+| `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
+
+### camera_pose.py（カメラポーズ書き出し）
+
+```bash
+blender -b data/FPS-camera.blend --python camera_pose.py -- --camera FPSCamera
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--camera` | （必須） | カメラオブジェクト名 |
+| `--output` | `data/<カメラ名>_poses.json` | 出力JSONパス |
+
+### fps_camera_pose.py（FPS頭部追従カメラのポーズ書き出し）
+
+アーマチュア＋アンカー＋子カメラ構成の .blend 用。`frame_change_post` ハンドラが `-b`（ヘッドレス）で発火しない問題に対応するため、Frankfurt平面ベースの姿勢計算を内蔵している。
+
+```bash
+/home/sakagawa/Downloads/apps/blender-4.5.5-linux-x64/blender -b data/Blender/session001_world_22pt.blend \
+    --python fps_camera_pose.py -- --camera Cam_FPS --output data/Cam_FPS_poses.json
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--camera` | （必須） | カメラオブジェクト名 |
+| `--armature` | `E00000` | アーマチュア名 |
+| `--anchor` | `Cam_Anchor` | アンカーEmpty名 |
+| `--output` | `data/<カメラ名>_poses.json` | 出力JSONパス |
+
+### npz_to_c3d.py（NPZ→C3D変換）
+
+world座標系 (X,Y,Z)[m] の NPZ を、Blender io_anim_c3d で正立取り込みできる C3D（mm / +Z / +Y 規約）に変換する。
+
+```bash
+uv run python npz_to_c3d.py data/session001_world_22pt.npz
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--output` | `<入力>.c3d` | 出力C3Dパス |
+| `--fps` | `30.0` | フレームレート（C3D point rate） |
+
+### filter_c3d.py（C3D時間方向平滑化）
+
+リフトアップ推定由来のジッターを Butterworth 2次 filtfilt（ゼロ位相）で除去する。入力は本プロジェクト規約のC3D（`npz_to_c3d.py` 出力）限定。
+
+```bash
+uv run python filter_c3d.py data/session001_world_22pt.c3d
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--output` | `<入力>_filtered.c3d` | 出力C3Dパス |
+| `--cutoff` | `6.0` | カットオフ周波数[Hz]。下げるほど滑らか |
+| `--rate` | なし | サンプリング周波数の補完（C3Dのpoint rate欠損時のみ使用可） |
+| `--max-gap` | `10` | 線形補間する欠損ギャップ長の上限[フレーム]。超過はセグメント分割 |
+
+### render.py（バッチレンダリング）
+
+```bash
+# dry-run（画像保存なしで動作確認・速度計測）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --dry-run
+
+# 連番PNG + MP4
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPSCamera_poses.json --mp4
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--output-dir` | `./data/images` | 出力ディレクトリ |
+| `--background` | `0 0 0` | 背景色 RGB（0-1、3値） |
+| `--rotate-z90` | OFF | ワールドZ軸まわりに90°回転して描画 |
+| `--start-frame` / `--end-frame` | なし | フレーム範囲（両端含む） |
+| `--dry-run` | OFF | 画像を保存せず速度計測のみ |
+| `--mp4` | OFF | MP4も出力 |
+| `--mp4-fps` | `30` | MP4フレームレート（整数） |
+
+### render_keypoints.py（キーポイント重ね描き / 静止画モード）
+
+2つのモードがある。
+
+**動画モード**（`c3d_path` を渡す）: キャリブTOMLのカメラで3DGSをレンダリングし、C3Dの人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容）をオクルージョン考慮で全フレーム重ね描きする。出力は連番PNG（`frame_<C3Dフレーム番号:06d>.png`）と `--mp4` 指定時のMP4。
+
+```bash
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/Blender/keypoints.c3d \
+    --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+```
+
+**静止画モード**（`--no-keypoints`。`c3d_path` は省略必須）: 3DGS背景のみの `still_<カメラ名>.png` を1枚出力する（再実行時は上書き）。`--distort` を付けるとTOMLの歪み係数（長さ4/5/8対応）で歪みモデルレンダリングになり、`estimate_camera_params.py` の推定結果をGT実写と視覚比較する用途に使う。
+
+```bash
+# ピンホール静止画
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
+    --camera cam41520554 --near-plane 0.5 --no-keypoints --output-dir /tmp/calib_check
+
+# 歪みモデル静止画（GT比較用）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml \
+    --camera cam41520554 --near-plane 0.5 --no-keypoints --distort --output-dir /tmp/calib_check
+```
+
+| オプション | 既定値 | 説明 | 使えるモード |
+|---|---|---|---|
+| `--camera` | （必須） | TOML内の対象カメラ名 | 両方 |
+| `--near-plane` | `0.1` | nearクリップ距離[m]。`0.01` だとカメラ至近のfloaterで黒い靄になるため `0.5` 推奨 | 両方 |
+| `--output-dir` | `./data/keypoints_<カメラ名>` | 出力ディレクトリ | 両方 |
+| `--background` | `0 0 0` | 背景色 RGB（0-1、3値） | 両方 |
+| `--no-keypoints` | OFF | 静止画モード（`c3d_path` 省略必須） | — |
+| `--distort` | OFF | TOMLの歪み係数で歪みレンダリング（gsplat 3DGUT経路） | 静止画のみ |
+| `--no-occlusion` | OFF | 深度によるキーポイント隠蔽を無効化（比較用） | 動画のみ |
+| `--occlusion-margin` | `0.05` | オクルージョン判定の深度マージン[m] | 動画のみ |
+| `--start-frame` / `--end-frame` | なし | C3Dフレーム番号の範囲（両端含む）。1フレームだけ出すなら両方に同じ値 | 動画のみ |
+| `--mp4` | OFF | MP4も出力（fps既定はC3D rate） | 動画のみ |
+| `--mp4-fps` | C3D rate | MP4フレームレート（小数可） | 動画のみ |
+| `--no-png` | OFF | 連番PNG保存をスキップしMP4のみ出力（`--mp4` 併用必須。数万フレームで大幅高速化） | 動画のみ |
+
+静止画モードで動画専用オプションを指定するとエラー（終了コード2）になる。
 
 ## テスト
 
