@@ -184,6 +184,7 @@ lift2d-to-3d-keypoints/
 │   ├── REQUIREMENTS_STANDARD.md       # 要求仕様書の記述基準
 │   ├── REVIEW_CRITERIA.md             # レビュー基準
 │   ├── TECH_STACK.md                  # 技術スタック詳細
+│   ├── codex-exec-ubuntu24-bwrap-fix.md # codex exec の bwrap エラー対策（Ubuntu 24系）
 │   └── issues/                        # 個別案件フォルダ
 ├── phase0/                            # カメラパラメータ推定スクリプト群
 │   ├── estimate_camera_params.py      # カメラパラメータ推定（メイン、K既知モード対応）
@@ -284,7 +285,7 @@ image_height: 540
 1. **案件作成** → `docs/issues/feat-{number}-{slug}/` フォルダを作成し、`docs/BACKLOG.md` に追加する
 2. **調査・計画** → 通常モードで既存コードを調査し、要求仕様書（`docs/REQUIREMENTS_STANDARD.md` 準拠）と機能設計書（`docs/DESIGN_STANDARD.md` 準拠）を作成する
 3. **ドキュメント保存** → 要求仕様書を `docs/issues/{案件フォルダ}/requirements.md`、機能設計書を `docs/issues/{案件フォルダ}/design.md` にファイル保存する。**保存が完了するまで実装に進んではならない**
-4. **レビュー（Codex + 人）** → 保存されたドキュメントを **Codex** でレビューする。実行方法は後述の「Codexによるレビューの実行方法」を参照。ユーザーも同時にレビューする。レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
+4. **レビュー（Codex → 人）** → 保存されたドキュメントを **Codex** でレビューする。実行方法は後述の「Codexによるレビューの実行方法」を参照。**まず Codex の再帰レビュー（修正→再レビュー）を重要度「高・中」がゼロに収束するまで回し、その後に人（ユーザー）がレビューする**（収束前に人レビューはしない）。レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
 5. **修正（必要な場合）** → レビューで問題があれば、再調査してドキュメントを更新する。**ステップ2〜4を問題がなくなるまで繰り返す**
 6. **実装** → ドキュメント（要求仕様書・機能設計書・CLAUDE.md）を読んで実装する。実装は後述の「実装の実行方法（Sonnetサブエージェント）」に従い、Sonnet サブエージェントに委任する。実装完了後、「テスト」のルールに従ってテストを実行する
 7. **手動テスト** → ユーザーがテストする。以下の問題があれば `docs/BUGFIX_STANDARD.md` に従って修正計画を `docs/issues/{案件フォルダ}/investigation.md` に追記する（上書きしない。イテレーション番号を付けて履歴を残す）。**ユーザーの承認を得た上で、ステップ2〜7を繰り返す**（コード修正はステップ6で行う。ステップ7で直接コードを編集してはならない）
@@ -300,7 +301,7 @@ image_height: 540
 1. **案件作成** → `docs/issues/bug-{number}-{slug}/` フォルダを作成し、`docs/BACKLOG.md` に追加する。`README.md` に不具合の概要と再現手順を記録する
 2. **調査・修正計画** → `docs/BUGFIX_STANDARD.md` に従い、既存コードを調査する。修正計画を `docs/issues/{案件フォルダ}/investigation.md` に記録する。**この時点でコードを編集してはならない**
 3. **ドキュメント保存** → investigation.md の保存を確認する。**保存が完了するまで実装に進んではならない**
-4. **レビュー（Codex + 人）** → 保存されたドキュメントを **Codex** でレビューする。実行方法は後述の「Codexによるレビューの実行方法」を参照。ユーザーも同時にレビューする。レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
+4. **レビュー（Codex → 人）** → 保存されたドキュメントを **Codex** でレビューする。実行方法は後述の「Codexによるレビューの実行方法」を参照。**まず Codex の再帰レビュー（修正→再レビュー）を重要度「高・中」がゼロに収束するまで回し、その後に人（ユーザー）がレビューする**（収束前に人レビューはしない）。レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
 5. **修正（必要な場合）** → レビューで問題があれば、再調査してドキュメントを更新する。**ステップ2〜4を問題がなくなるまで繰り返す**
 6. **実装** → 承認された修正計画に沿ってコードを修正する。実装は後述の「実装の実行方法（Sonnetサブエージェント）」に従い、Sonnet サブエージェントに委任する。計画にない変更が必要になった場合は中断して報告する
 7. **手動テスト** → ユーザーがテストする。問題があれば `docs/BUGFIX_STANDARD.md` に従って investigation.md にイテレーション番号を付けて追記し、**ユーザーの承認を得た上で、ステップ2〜7を繰り返す**（コード修正はステップ6で行う。ステップ7で直接コードを編集してはならない）
@@ -327,7 +328,8 @@ docs/issues/
     ├── README.md              # 概要、ステータス、再現手順
     ├── requirements.md        # 要求仕様書（機能追加時、REQUIREMENTS_STANDARD.md 準拠）
     ├── design.md              # 機能設計書（機能追加時、DESIGN_STANDARD.md 準拠）
-    └── investigation.md       # 不具合の調査・修正計画（BUGFIX_STANDARD.md 準拠）
+    ├── investigation.md       # 不具合の調査・修正計画（BUGFIX_STANDARD.md 準拠）
+    └── reviews/               # Codexレビューの結果（codex-NN.result.md のみ git 管理。full.log は gitignore）
 ```
 
 ### 命名規則
@@ -337,35 +339,55 @@ docs/issues/
 
 ### Codexによるレビューの実行方法
 
-機能追加・不具合修正フローのステップ4（レビュー）では、Claude Code 自身が `codex exec` コマンドを実行して Codex にレビューさせる。Subagent は使わない。
+機能追加・不具合修正フローのステップ4（レビュー）では、Claude Code 自身が `codex exec` コマンドを実行して Codex にレビューさせる。Subagent は使わない。**Codex は逐次（前回セッションを `resume` で継続）で回し、重要度「高・中」がゼロに収束してから人レビューに進む**。並列にはしない（再レビューの収束確認＝「前回指摘が直ったか」の判定に前回文脈の引き継ぎが必要なため）。
 
 使用するモデルは `~/.codex/config.toml` のデフォルト設定に従う。本ファイルのコマンドにはモデル指定（`-m`）を書かない。モデルを切り替えたい場合は `~/.codex/config.toml` を編集する（全プロジェクト共通で反映される）。
+
+**実行はバックグラウンドで行う**: Codex のレビューは reasoning effort の設定によっては1回10分を超えることがあり、Claude Code の Bash ツールのタイムアウト上限（最大10分）に抵触する。`codex exec` はバックグラウンド実行（`run_in_background`）とし、完了通知後に `codex-NN.result.md` を読んで指摘を確認する。`-o` による結果のファイル保存はこの運用を前提としている。
+
+> **Ubuntu 24系で `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` が出る場合**は、`docs/codex-exec-ubuntu24-bwrap-fix.md` を参照して AppArmor プロファイルを追加すること（ホスト側の user namespace 制限が原因。Codex のバグではない）。
+
+#### 出力の保存（結果と過程を分離）
+
+- レビュー結果と過程ログは **案件フォルダの `docs/issues/{案件フォルダ}/reviews/`** に保存する（事前に `mkdir -p` する）。
+- **初回から `-o`（`--output-last-message`）を必ず付ける**。`-o` で最終レビュー結果だけを `codex-NN.result.md` に書き、stdout 全体（過程ログ）は `> codex-NN.full.log 2>&1` で別ファイルに保存する（混在させない）。
+- ファイル名はレビュー回ごとに連番（`codex-01`, `codex-02`, …）。
+- `result.md` のみ git 管理し、`full.log` は `.gitignore`（`docs/issues/*/reviews/*.full.log`）でローカルのみとする（リポジトリ肥大回避）。
+- `result.md` には Codex の生出力に加え、Claude Code の対応方針を追記してよい（冒頭に日付・対象・session id・初回/再の定型メタを置くと追いやすい）。
 
 #### 初回レビュー（機能追加の場合）
 
 ```bash
-codex exec "docs/REVIEW_CRITERIA.md の基準に従い、以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/requirements.md docs/issues/{案件フォルダ}/design.md 。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。"
+mkdir -p docs/issues/{案件フォルダ}/reviews
+codex exec -o docs/issues/{案件フォルダ}/reviews/codex-01.result.md \
+  "docs/REVIEW_CRITERIA.md の基準に従い、以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/requirements.md docs/issues/{案件フォルダ}/design.md 。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。" \
+  > docs/issues/{案件フォルダ}/reviews/codex-01.full.log 2>&1
 ```
 
 #### 初回レビュー（不具合修正の場合）
 
 ```bash
-codex exec "docs/REVIEW_CRITERIA.md および docs/BUGFIX_STANDARD.md の基準に従い、以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/investigation.md 。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。"
+mkdir -p docs/issues/{案件フォルダ}/reviews
+codex exec -o docs/issues/{案件フォルダ}/reviews/codex-01.result.md \
+  "docs/REVIEW_CRITERIA.md および docs/BUGFIX_STANDARD.md の基準に従い、以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/investigation.md 。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。" \
+  > docs/issues/{案件フォルダ}/reviews/codex-01.full.log 2>&1
 ```
 
 #### 再レビュー（共通）
 
-ドキュメントを更新して再レビューする場合、最初のレビューの文脈を保持するため `resume --last` を使う:
+ドキュメントを更新して再レビューする場合、最初のレビューの文脈を保持するため**同一セッションを `resume` で継続**する。セッション ID は `codex-01.full.log` 冒頭の `session id:` 行に記録されるので、それを明示指定する（`--last` は別の codex 実行が挟まると意図しないセッションを掴む恐れがあるため使わない）。連番を1つ進める:
 
 ```bash
-codex exec resume --last "ドキュメントを更新したので再レビューして。前回と同じ基準で。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。重要度(高/中/低)で分類し、修正提案とともに報告すること。"
+codex exec resume {SESSION_ID} -o docs/issues/{案件フォルダ}/reviews/codex-02.result.md \
+  "ドキュメントを更新したので再レビューして。前回と同じ基準で。前回指摘が解消されたかを含めて確認して。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。重要度(高/中/低)で分類し、修正提案とともに報告すること。" \
+  > docs/issues/{案件フォルダ}/reviews/codex-02.full.log 2>&1
 ```
 
-**注意**: `resume --last` を付けないと最初のレビューの文脈が失われる。
+**注意**: `resume`（セッション継続）を使わないと最初のレビューの文脈が失われる。`-o` と `> ...full.log 2>&1` は毎回付け、連番（`codex-03`, `codex-04`, …）を進める。
 
 #### レビュー終了条件
 
-重要度「高」「中」の指摘がなくなるまで、修正 → 再レビューを繰り返す。「低」のみになったら人レビューに進む。
+重要度「高」「中」の指摘がゼロに収束するまで、修正 → 再レビュー（連番を進める）を繰り返す。**収束したら人（ユーザー）レビューに進む**（収束前に人レビューはしない）。
 
 ### 実装の実行方法（Sonnetサブエージェント）
 
