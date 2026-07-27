@@ -262,6 +262,12 @@ def load_intrinsic_toml(toml_path: str, camera_name: str) -> dict:
 
     cam_data = data[camera_name]
 
+    for key in ('matrix', 'distortions', 'size'):
+        if key not in cam_data:
+            message = f"エラー: TOMLの [{camera_name}] に {key} がありません: {toml_path}"
+            print(message)
+            raise ValueError(message)
+
     K = np.array(cam_data['matrix'], dtype=np.float64)
     dist = np.array(cam_data['distortions'], dtype=np.float64)
     size = cam_data['size']
@@ -413,20 +419,33 @@ def _run_extrinsic_estimation(config_path: str, toml_path: str, output_path: str
     config = load_yaml_simple(config_path)
     config_dir = Path(config_path).parent
 
+    for key in ('target_camera', 'points_3d', 'points_2d'):
+        if key not in config or not str(config[key]).strip():
+            print(f"エラー: 設定ファイルに {key} がありません: {config_path}")
+            return 1
+
+    points_3d_path = config_dir / config['points_3d']
+    points_2d_path = config_dir / config['points_2d']
+    for path in (points_3d_path, points_2d_path):
+        if not path.is_file():
+            print(f"エラー: 入力ファイルが見つかりません（またはファイルではありません）: {path}")
+            return 1
+
     target_cameras_str = config['target_camera']
     target_cameras = list(dict.fromkeys(
         c.strip() for c in target_cameras_str.split(',') if c.strip()
     ))
 
-    points_3d_path = config_dir / config['points_3d']
-    points_2d_path = config_dir / config['points_2d']
     points_3d_dict = load_points_3d(points_3d_path)
 
     results = {}  # カメラ名 → 推定結果（TOML出力用）
 
     for target_camera in target_cameras:
         # 内部パラメータ読み込み
-        intrinsic = load_intrinsic_toml(toml_path, target_camera)
+        try:
+            intrinsic = load_intrinsic_toml(toml_path, target_camera)
+        except ValueError:
+            return 1
         if intrinsic is None:
             print(f"警告: {target_camera} の内部パラメータが見つかりません。スキップします。")
             continue
@@ -630,11 +649,21 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
 
     config = load_yaml_simple(config_path)
     config_dir = Path(config_path).parent
-    
-    target_camera = config['target_camera']
+
+    for key in ('target_camera', 'points_3d', 'points_2d'):
+        if key not in config or not str(config[key]).strip():
+            print(f"エラー: 設定ファイルに {key} がありません: {config_path}")
+            return 1
+
     points_3d_path = config_dir / config['points_3d']
     points_2d_path = config_dir / config['points_2d']
-    
+    for path in (points_3d_path, points_2d_path):
+        if not path.is_file():
+            print(f"エラー: 入力ファイルが見つかりません（またはファイルではありません）: {path}")
+            return 1
+
+    target_camera = config['target_camera']
+
     img_width = int(config.get('image_width', 960))
     img_height = int(config.get('image_height', 540))
     
@@ -671,7 +700,11 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
     print(f"\n基準点数: {num_points}点")
     for name in point_names:
         print(f"  - {name}")
-    
+
+    if num_points < MIN_POINTS_NO_DIST:
+        print(f"\nエラー: 基準点が{num_points}点しかありません。最低{MIN_POINTS_NO_DIST}点必要です。")
+        return 1
+
     # 必要点数の決定
     if use_wide:
         min_points = MIN_POINTS_DIST8_FIXCENTER if fix_center else MIN_POINTS_DIST8
@@ -1013,7 +1046,11 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
             projected_opt = project_no_dist(params_opt, points_3d)
     
     reproj_error = np.sqrt(np.mean(np.sum((projected_opt - points_2d) ** 2, axis=1)))
-    
+
+    if result.status <= 0:
+        print(f"\n⚠ 警告: 最適化が収束しませんでした（status={result.status}: {result.message}）")
+        print("→ 推定結果が信頼できない可能性があります。点対応・点数を確認してください。")
+
     # ========================================
     # 結果表示
     # ========================================
@@ -1218,7 +1255,11 @@ def main():
     # 常に単一カメラ名の target_camera が渡される。
     if not args.intrinsic_toml:
         config = load_yaml_simple(args.config)
-        cameras = [c.strip() for c in config['target_camera'].split(',') if c.strip()]
+        target_camera_value = config.get('target_camera')
+        if not target_camera_value or not str(target_camera_value).strip():
+            print(f"エラー: 設定ファイルに target_camera がありません: {args.config}")
+            return 1
+        cameras = [c.strip() for c in target_camera_value.split(',') if c.strip()]
         if len(cameras) > 1:
             print("エラー: 通常モード（K未知）では複数カメラの指定はサポートされていません。")
             print("  複数カメラの一括推定には --intrinsic-toml を使用してください。")
