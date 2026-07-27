@@ -46,6 +46,15 @@ MIN_POINTS_DIST2_FIXCENTER = 10  # 放射2係数・接線ゼロ+主点固定: 10
 MIN_POINTS_DIST3 = 14            # 放射3係数・接線ゼロ: 13変数
 MIN_POINTS_DIST3_FIXCENTER = 11  # 放射3係数・接線ゼロ+主点固定: 11変数
 
+# パラメータ範囲チェックの閾値（feat-025）
+F_SCALE_MIN = 0.3        # fx, fy の下限: 0.3 × max(width, height)
+F_SCALE_MAX = 3.0        # fx, fy の上限: 3.0 × max(width, height)
+FX_FY_RATIO_MIN = 0.9    # fx/fy 比の下限
+FX_FY_RATIO_MAX = 1.1    # fx/fy 比の上限
+CENTER_TOL_RATIO = 0.10  # cx, cy の許容ずれ: 画像幅/高さの10%
+K_RADIAL_ABS_MAX = 1.0   # |k1|, |k2|, |k3| の上限
+P_TANGENT_ABS_MAX = 0.01 # |p1|, |p2| の上限
+
 
 # ========================================
 # 投影関数（主点固定版）
@@ -548,6 +557,68 @@ def _run_extrinsic_estimation(config_path: str, toml_path: str, output_path: str
     return 0 if results else 1
 
 
+def check_param_ranges(fx: float, fy: float, cx: float, cy: float,
+                       k1: float, k2: float, p1: float, p2: float, k3: float,
+                       img_width: int, img_height: int,
+                       fix_center: bool, use_wide: bool, use_k3: bool,
+                       zero_tangent: bool, estimate_distortion: bool) -> list[str]:
+    """推定パラメータが妥当範囲内かをチェックし、範囲外の警告メッセージ一覧を返す（feat-025）"""
+    warnings: list[str] = []
+    S = max(img_width, img_height)
+
+    # 1. fx, fy の絶対範囲
+    fx_min, fx_max = F_SCALE_MIN * S, F_SCALE_MAX * S
+    if not (fx_min <= fx <= fx_max):
+        warnings.append(f"fx = {fx:.2f} が正常範囲 [{fx_min:.1f}, {fx_max:.1f}] を外れています")
+    if not (fx_min <= fy <= fx_max):
+        warnings.append(f"fy = {fy:.2f} が正常範囲 [{fx_min:.1f}, {fx_max:.1f}] を外れています")
+
+    # 2. fx/fy 比（fy == 0 の場合はゼロ除算回避のためスキップ）
+    if fy != 0 and not (FX_FY_RATIO_MIN <= fx / fy <= FX_FY_RATIO_MAX):
+        warnings.append(
+            f"fx/fy = {fx / fy:.4f} が正常範囲 [{FX_FY_RATIO_MIN}, {FX_FY_RATIO_MAX}] を外れています"
+        )
+
+    # 3. cx, cy（fix_center が False のときのみ）
+    if not fix_center:
+        cx_min = img_width / 2 - CENTER_TOL_RATIO * img_width
+        cx_max = img_width / 2 + CENTER_TOL_RATIO * img_width
+        if not (cx_min <= cx <= cx_max):
+            warnings.append(f"cx = {cx:.2f} が正常範囲 [{cx_min:.2f}, {cx_max:.2f}] を外れています")
+
+        cy_min = img_height / 2 - CENTER_TOL_RATIO * img_height
+        cy_max = img_height / 2 + CENTER_TOL_RATIO * img_height
+        if not (cy_min <= cy <= cy_max):
+            warnings.append(f"cy = {cy:.2f} が正常範囲 [{cy_min:.2f}, {cy_max:.2f}] を外れています")
+
+    # 4. 歪み係数（estimate_distortion が True のときのみ）
+    if estimate_distortion:
+        if not use_wide:
+            if abs(k1) > K_RADIAL_ABS_MAX:
+                warnings.append(
+                    f"k1 = {k1:.6f} が正常範囲 [{-K_RADIAL_ABS_MAX}, {K_RADIAL_ABS_MAX}] を外れています"
+                )
+            if abs(k2) > K_RADIAL_ABS_MAX:
+                warnings.append(
+                    f"k2 = {k2:.6f} が正常範囲 [{-K_RADIAL_ABS_MAX}, {K_RADIAL_ABS_MAX}] を外れています"
+                )
+            if use_k3 and abs(k3) > K_RADIAL_ABS_MAX:
+                warnings.append(
+                    f"k3 = {k3:.6f} が正常範囲 [{-K_RADIAL_ABS_MAX}, {K_RADIAL_ABS_MAX}] を外れています"
+                )
+        if not zero_tangent:
+            if abs(p1) > P_TANGENT_ABS_MAX:
+                warnings.append(
+                    f"p1 = {p1:.6f} が正常範囲 [{-P_TANGENT_ABS_MAX}, {P_TANGENT_ABS_MAX}] を外れています"
+                )
+            if abs(p2) > P_TANGENT_ABS_MAX:
+                warnings.append(
+                    f"p2 = {p2:.6f} が正常範囲 [{-P_TANGENT_ABS_MAX}, {P_TANGENT_ABS_MAX}] を外れています"
+                )
+
+    return warnings
+
+
 def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: bool,
                    intrinsic_toml: str = None, output_path: str = None,
                    zero_tangent: bool = False):
@@ -996,7 +1067,29 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
         err = np.linalg.norm(projected_opt[i] - points_2d[i])
         status = "✓" if err < 10 else "✗"
         print(f"  {name}: {err:.2f} px {status}")
-    
+
+    # ========================================
+    # パラメータ範囲チェック（feat-025）
+    # ========================================
+    range_warnings = check_param_ranges(
+        fx_opt, fy_opt, cx_opt, cy_opt,
+        k1_opt, k2_opt, p1_opt, p2_opt, k3_opt,
+        img_width, img_height,
+        fix_center, use_wide, use_k3, zero_tangent, estimate_distortion
+    )
+    print("\n[パラメータ範囲チェック]")
+    if range_warnings:
+        for w in range_warnings:
+            print(f"⚠ 警告: {w}")
+        if use_wide:
+            hint = ("--fix-center の使用、または標準モデル（--wide なし）への切り替えを"
+                    "検討してください。")
+        else:
+            hint = "--zero-tangent / --fix-center の使用を検討してください。"
+        print(f"→ 点対応の誤り・点配置の偏り・パラメータ相殺（過学習）の可能性があります。{hint}")
+    else:
+        print("✓ すべてのパラメータが正常範囲内です")
+
     # ========================================
     # Calib_scene.toml 形式で出力
     # ========================================
