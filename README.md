@@ -178,6 +178,9 @@ translation = [0.0, 0.0, 0.0]
 fisheye = false
 ```
 
+- `fisheye = true` のセクションは未対応（エラー終了する。魚眼モデルは別途対応が必要）
+- `--output` に `--intrinsic-toml` と同じパスは指定できない（入力TOMLの上書き防止のためエラー終了する）
+
 ## phase4: gsplatレンダリング
 
 phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプトは `phase4/` ディレクトリで実行する。

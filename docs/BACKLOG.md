@@ -33,3 +33,4 @@
 | feat-024 | 機能追加 | render_keypoints.py 歪みモデル対応レンダリング（GT比較用） | Closed |
 | feat-025 | 機能追加 | estimate_camera_params.py 推定パラメータの範囲チェック（警告出力） | Closed |
 | bug-003 | 不具合 | estimate_camera_params.py 通常モードの入力・収束ガード不足 | Closed |
+| bug-004 | 不具合 | estimate_camera_params.py Codex コードレビュー（方式2）と指摘対応 | Closed |

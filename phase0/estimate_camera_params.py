@@ -22,6 +22,7 @@
 """
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -268,9 +269,48 @@ def load_intrinsic_toml(toml_path: str, camera_name: str) -> dict:
             print(message)
             raise ValueError(message)
 
-    K = np.array(cam_data['matrix'], dtype=np.float64)
-    dist = np.array(cam_data['distortions'], dtype=np.float64)
+    if cam_data.get('fisheye', False):
+        message = f"エラー: [{camera_name}] は fisheye = true です。魚眼モデルは未対応です: {toml_path}"
+        print(message)
+        raise ValueError(message)
+
+    def _invalid(key: str, reason: str):
+        message = f"エラー: TOMLの [{camera_name}] の {key} が不正です（{reason}）: {toml_path}"
+        print(message)
+        raise ValueError(message)
+
+    try:
+        K = np.array(cam_data['matrix'], dtype=np.float64)
+    except (ValueError, TypeError):
+        _invalid('matrix', '数値の3x3配列として解釈できません')
+
+    try:
+        dist = np.array(cam_data['distortions'], dtype=np.float64)
+    except (ValueError, TypeError):
+        _invalid('distortions', '数値の1次元配列として解釈できません')
+
     size = cam_data['size']
+
+    if K.shape != (3, 3):
+        _invalid('matrix', '3x3ではありません')
+
+    if not (dist.ndim == 1 and dist.size in (4, 5, 8, 12, 14)):
+        _invalid('distortions', '長さが4/5/8/12/14のいずれでもありません')
+
+    try:
+        size_len_ok = len(size) == 2
+    except TypeError:
+        size_len_ok = False
+    if not size_len_ok:
+        _invalid('size', '2要素ではありません')
+
+    try:
+        size_values = [float(size[0]), float(size[1])]
+    except (ValueError, TypeError):
+        _invalid('size', '数値として解釈できません')
+
+    if not all(math.isfinite(v) and v > 0 for v in size_values):
+        _invalid('size', '正の有限値ではありません')
 
     return {
         'K': K,
@@ -400,8 +440,9 @@ def _print_toml_output(camera_name: str, image_width: int, image_height: int,
 
 
 def _write_toml_output(output_path: str, results: dict):
-    """推定結果をTOMLファイルに書き出す"""
-    with open(output_path, 'w', encoding='utf-8') as f:
+    """推定結果をTOMLファイルに書き出す（一時ファイル経由の原子的書き込み）"""
+    tmp_path = Path(output_path).with_suffix(Path(output_path).suffix + '.tmp')
+    with open(tmp_path, 'w', encoding='utf-8') as f:
         for camera_name, data in results.items():
             section = _format_toml_section(
                 camera_name,
@@ -410,11 +451,27 @@ def _write_toml_output(output_path: str, results: dict):
             )
             f.write(section)
             f.write('\n')
+    tmp_path.replace(output_path)
     print(f"\n推定結果を保存しました: {output_path}")
 
 
 def _run_extrinsic_estimation(config_path: str, toml_path: str, output_path: str = None):
     """K既知モードの処理（複数カメラ対応）"""
+
+    if not Path(toml_path).is_file():
+        print(f"エラー: TOMLファイルが見つかりません: {toml_path}")
+        return 1
+
+    if output_path:
+        if Path(output_path).resolve() == Path(toml_path).resolve():
+            print(f"エラー: --output に入力TOMLと同じパスは指定できません: {output_path}")
+            return 1
+        if Path(output_path).is_dir():
+            print(f"エラー: --output はディレクトリです: {output_path}")
+            return 1
+        if not Path(output_path).parent.is_dir():
+            print(f"エラー: 出力先ディレクトリが存在しません: {Path(output_path).parent}")
+            return 1
 
     config = load_yaml_simple(config_path)
     config_dir = Path(config_path).parent
@@ -642,6 +699,10 @@ def run_estimation(config_path: str, use_k3: bool, use_wide: bool, fix_center: b
                    intrinsic_toml: str = None, output_path: str = None,
                    zero_tangent: bool = False):
     """メイン処理"""
+
+    if not Path(config_path).is_file():
+        print(f"エラー: 設定ファイルが見つかりません: {config_path}")
+        return 1
 
     # K既知モード
     if intrinsic_toml:
@@ -1211,12 +1272,12 @@ def main():
 
     args = parser.parse_args()
 
-    if not Path(args.config).exists():
+    if not Path(args.config).is_file():
         print(f"エラー: 設定ファイルが見つかりません: {args.config}")
         return 1
 
-    # --zero-tangent と --wide の併用エラー（重い処理の前に判定）
-    if args.zero_tangent and args.wide:
+    # --zero-tangent と --wide の併用エラー（重い処理の前に判定。K既知モードでは無視されるべきなので対象外）
+    if not args.intrinsic_toml and args.zero_tangent and args.wide:
         print("エラー: --zero-tangent と --wide は併用できません")
         return 1
 
@@ -1234,20 +1295,13 @@ def main():
         if ignored:
             print(f"警告: --intrinsic-toml 指定時は {', '.join(ignored)} は無視されます")
 
-        if not Path(args.intrinsic_toml).exists():
+        if not Path(args.intrinsic_toml).is_file():
             print(f"エラー: TOMLファイルが見つかりません: {args.intrinsic_toml}")
             return 1
 
     # --output が --intrinsic-toml なしで指定された場合の警告
     if args.output and not args.intrinsic_toml:
         print("警告: --output は --intrinsic-toml と併用時のみ有効です。無視します。")
-
-    # --output の出力先ディレクトリの存在確認
-    if args.output and args.intrinsic_toml:
-        output_dir = Path(args.output).parent
-        if not output_dir.exists():
-            print(f"エラー: 出力先ディレクトリが存在しません: {output_dir}")
-            return 1
 
     # 通常モードで複数カメラ指定のエラーチェック
     # 通常モード（K未知）では target_camera のカンマ分割は行わない。

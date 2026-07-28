@@ -96,6 +96,8 @@ error = 0.3356
 - `metadata` セクションは無視する
 - `rotation`, `translation`, `fisheye` は読み込まない（本ツールではrotation/translationを推定する）
 
+**変更注記（2026-07-27, bug-004）**: `fisheye` は読み込み、`true` の場合は「未対応エラー」として終了コード1で終了するよう仕様変更した。魚眼キャリブレーションの TOML を通常の OpenCV 歪みモデルで誤処理し、無警告で誤った外部パラメータを出力することを防ぐため。`fisheye = false` およびキーなしの動作は従来どおり。
+
 ### 3D基準点CSV、2D画像座標CSV
 
 既存の `estimate_camera_params.py` と同じフォーマット（CLAUDE.md参照）。

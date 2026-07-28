@@ -117,6 +117,8 @@ from common import load_yaml_simple, load_points_3d, load_points_2d, match_point
 `estimate_extrinsic.py` から以下の関数を移植する:
 
 - `load_intrinsic_toml(toml_path: str, camera_name: str) -> dict` — そのまま移植
+
+**変更注記（2026-07-27, bug-004）**: `load_intrinsic_toml` は `fisheye = true` のセクションに対し、エラーメッセージを表示して `ValueError` を送出する（呼び出し側で捕捉し終了コード1）。`false` / キーなしは従来どおり。あわせて `matrix`（3x3）・`distortions`（長さ4/5/8/12/14）・`size`（2要素の正の有限数）の形状検証を追加した。
 - `estimate_extrinsic(points_3d, points_2d, K, dist, point_names) -> dict` — 移植時に `sys.exit(1)` を `raise SystemExit(1)` に置き換えない。代わりにエラー時は `print` + `return None` に変更する（後述）
 - `compute_reprojection_errors(points_3d, points_2d, K, dist, rvec, tvec) -> tuple` — そのまま移植
 

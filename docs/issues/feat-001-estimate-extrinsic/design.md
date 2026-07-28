@@ -48,6 +48,8 @@
   - `size` → `[width, height]`（`tomli` は float としてパースするため、`int()` に変換して返す）
 - `metadata` セクションはスキップする（カメラ名と一致しないため自然にスキップされる）
 
+**変更注記（2026-07-27, bug-004）**: `load_intrinsic_toml` は `fisheye = true` のセクションに対し、エラーメッセージを表示して `ValueError` を送出する（呼び出し側で捕捉し終了コード1）。`false` / キーなしは従来どおり。あわせて `matrix`（3x3）・`distortions`（長さ4/5/8/12/14）・`size`（2要素の正の有限数）の形状検証を追加した。
+
 #### `load_points_3d(csv_path: str) -> dict`
 - 既存スクリプトと同じ実装
 

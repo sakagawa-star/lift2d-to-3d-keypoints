@@ -2,6 +2,19 @@
 
 ## リリース履歴
 
+### 2026-07-28
+
+- **bug-004**: estimate_camera_params.py Codex コードレビュー（方式2）と指摘対応
+  - bug-003 修正後のコードに対する Codex 第三者コードレビューで検出した重要度「高」3件・「中」2件を修正
+  - (H-1) `--output` に入力TOMLと同じパスを指定すると入力を破壊できた問題: 同一パス（`resolve()` 比較）を関数入口でエラー化し、書き込みは `.tmp` 経由の原子的書き込みに変更
+  - (H-2) config / `--intrinsic-toml` / `--output` のパス種別未検証: `is_file()` 検証と `--output` のディレクトリ・親ディレクトリ検証を `_run_extrinsic_estimation` に集約（CLI・関数直呼びの両経路を保護）
+  - (H-3) 内部パラメータ TOML の値の形状未検証: `matrix`（3x3）・`distortions`（長さ4/5/8/12/14）・`size`（2要素の正の有限数）を検証し、不正はメッセージ＋終了コード1
+  - (M-1) K既知モードで `--wide --zero-tangent` 併用が feat-023 要求（警告して無視）に反しエラー終了していた問題: 排他チェックを K未知モード限定に修正
+  - (M-2) TOML の `fisheye = true` を無視して通常歪みモデルで誤処理していた問題: 明示的な未対応エラーに変更（feat-001 requirements/design、feat-003 design に変更注記を追記。README にも制約を記載）
+  - 正常系（正しいパス・正しいTOML・fisheye なし/false）の出力は修正前と同一
+  - テスト: `tests/test_bug004_toml_output_guards.py` 新規23件（同一パス防止・原子性・パス種別・形状検証・排他条件・fisheye、CLI/直呼び両経路）。全体 248 passed / 1 skipped（`tests/results/bug-004_test_result.txt`）
+  - Codexレビュー4サイクル（コードレビュー1回 + 修正計画3回。高: 関数直呼び経路のガード漏れ・`--output` 親ディレクトリ検証、中: fisheye 仕様変更の正式化を解消）。実装は Sonnet サブエージェントが investigation.md 準拠で実施。手動テストで同一パス指定時のエラーと入力TOML無傷を確認
+
 ### 2026-07-27
 
 - **bug-003**: estimate_camera_params.py 通常モードの入力・収束ガード不足
