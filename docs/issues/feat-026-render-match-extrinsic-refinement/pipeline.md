@@ -151,7 +151,7 @@ len(δ) ∉ {4, 5}  ⟹  「歪み係数は4/5係数(k1,k2,p1,p2[,k3])のみ対�
 
 ### Stage 2: レンダリング（3DGUT 経路による歪み付き直接レンダ）
 
-gsplat の 3DGUT 経路（`with_ut=True, with_eval3d=True, packed=False` + radial/tangential 係数、render_mode="RGB+ED"）で、**歪みモデル込みの画像・深度・α を 1 回のレンダリングで直接生成**する。ワープ後処理は行わない:
+gsplat の 3DGUT 経路（`with_ut=True, with_eval3d=True, packed=False` + radial/tangential 係数）で、**歪みモデル込みの画像・深度・α を直接生成**する。ワープ後処理は行わない:
 
 ```
 w_i(v)  = α_i(v) T_i(v),   T_i(v) = Π_{j<i} (1 − α_j(v))
@@ -169,9 +169,14 @@ D(v)    = Σ_{i∈S(v)} z_i w_i(v) / A(v)                … α正規化済み�
 | z_i | スカラー [長さ] | ガウシアン i の C系奥行き = (R^(k) μ_i + t^(k)) の z 成分 |
 | I_r | H×W_img×3 | **出力**: 歪み付きレンダ画像（r = render） |
 | A | H×W_img ∈[0,1] | **出力**: αマップ。**A が小さい画素の D は正規化の分母が小さく不安定**（Stage 4 のゲート (iv) で使用） |
-| D | H×W_img [W系長さ] | **出力**: 歪み付き期待深度マップ。gsplat "RGB+ED" の末尾チャンネル（**α正規化済み** Σwz/Σw であることに注意） |
+| D | H×W_img [W系長さ] | **出力**: 歪み付き期待深度マップ（**α正規化済み** Σwz/Σw。α ≈ 0 の背景画素は NaN とし Stage 4 のゲート (iv) で扱う） |
 
-実装 = phase4 `render_keypoints.py` の `render_image(distort=True, return_depth=True)`（feat-024 / feat-016）を**そのまま流用**。`--distort` と `return_depth` の併用は実装済みで、戻り値 (bgr, depth_map, alpha_map) が本段の (I_r, D, A) に一致する。歪み係数の詰め替えは `distortions_to_gsplat` で実装済み（4 係数は radial = [k1,k2,0,0,0,0]、5 係数は radial = [k1,k2,k3,0,0,0]、いずれも tangential = [p1,p2] に展開される）。
+**実装（2026-07-31 訂正）**: gsplat 1.5.3 の 3DGUT 経路は render_mode="RGB+ED"（深度同時出力）を**受け付けない**（カーネルが channels==3 のアサーションで停止。案1実験の疎通確認で実機判明。当初の「`render_image(distort=True, return_depth=True)` をそのまま流用」という記述は誤りで、この組み合わせは一度も実行実績がなかった）。実装は **3DGUT レンダ2回**とする:
+
+1. 色: `render_image(distort=True)`（feat-024、実行実績あり）
+2. 深度+α: 各ガウシアンのカメラ座標奥行き z_i を3チャンネル複製した「色」として同一設定の 3DGUT レンダに流し、ブレンド出力 Σ(w·z) を α = Σw で除算して D を得る（上の定義式と同一。α > 1e-6 の有効画素に限り gsplat の ED と同一セマンティクス）。実装例: 案1実験の `render_depth_alpha_distorted`（`experiments/a1_synthetic/stage2_smoke_test.py`、codex-08 レビュー済み）
+
+歪み係数の詰め替えは `distortions_to_gsplat` で実装済み（4 係数は radial = [k1,k2,0,0,0,0]、5 係数は radial = [k1,k2,k3,0,0,0]、いずれも tangential = [p1,p2] に展開される）。
 
 **歪みの向きに関する設計判断**: 実写を undistort するのではなくレンダ側を歪み付きで生成する。理由: (1) 広角のため undistort は周辺部を大きく引き伸ばし補間ボケが生じ、マッチャーの特徴が劣化する、(2) 計測の元データ（実写）を一切加工しない、(3) 実写側の点座標の歪み処理は op-2（座標のみ・解析的）と π_δ（PnP が歪み込みで解ける）で完結する、(4) 3DGUT 直接レンダなら合成側にも補間誤差が乗らない（post-warp 方式を採らない理由）。
 
@@ -377,7 +382,7 @@ N 点 PnP の誤差伝播（最小二乗の標準理論）より、回転誤差 
 ### 実験 A: ドメインギャップ検証＋摂動回復検証（最優先）
 
 - 内容（2 段階）:
-  - **A-1（マッチング成否）**: 既存の手動 20 点方式で推定済みのポーズを使い、phase4 資産（`render_image(distort=True, return_depth=True)`）で 1 枚レンダリング。実写 1 枚とのマッチングを SIFT → LoFTR → MASt3R の順で試し、マッチ数・分布（檻領域/非檻領域）・Stage 4 各ゲートの生存数を確認する
+  - **A-1（マッチング成否）**: 既存の手動 20 点方式で推定済みのポーズを使い、Stage 2 の2パス方式（色: `render_image(distort=True)`、深度+α: `render_depth_alpha_distorted`）で 1 枚レンダリング。実写 1 枚とのマッチングを SIFT → LoFTR → MASt3R の順で試し、マッチ数・分布（檻領域/非檻領域）・Stage 4 各ゲートの生存数を確認する
   - **A-2（摂動回復）**: 推定済みポーズに**既知の摂動**（例: 位置 ±3〜10 cm、角度 ±2〜5 度の数通り）を加えた初期値から Stage 2〜7 を回し、元ポーズへ戻るかを測る。マッチ数だけでは「幾何的に整合した誤対応が間違った PnP 解を作る」ケースを検出できないため、**end-to-end の回復性で判定する**
 - 判定指標（セットで見る）: マッチ数 N、RANSAC インライア率、再投影 RMSE、**ポーズ回復量（摂動前ポーズとの残差 Δθ・Δτ）**、退化診断値（λ_3/λ_1、深度レンジ、画像分布）
 - 合格条件: 全摂動ケースで元ポーズ近傍（目安: 位置 1 cm・角度 0.1 度以内。値は design で確定）へ収束すること
@@ -401,7 +406,7 @@ N 点 PnP の誤差伝播（最小二乗の標準理論）より、回転誤差 
 |---|---|
 | Stage 0 | 新規（feat-026 入口での δ 長検証。既存資産は変更しない） |
 | Stage 1 | 既存 `estimate_camera_params.py --intrinsic-toml` 流用（変更なし） |
-| Stage 2 | phase4 `render_keypoints.py` の `render_image(distort=True, return_depth=True)` をそのまま流用（3DGUT 経路、実装済み） |
+| Stage 2 | 2パス方式: 色は `render_image(distort=True)` 流用（実行実績あり）、深度+α は `render_depth_alpha_distorted` 相当を新規実装（z_i を色として流しαで正規化。実験プロトタイプ実装・codex-08/09 レビュー済み） |
 | Stage 3 | 既製マッチャー（MASt3R/LoFTR）の推論呼び出し（新規・外部依存追加） |
 | Stage 4, 5 | 新規（各数式 1 本の関数） |
 | Stage 6 | RANSAC 部は既存資産と同型（流用）。退化診断 (6b) とロバスト非線形最小二乗 (6c) は新規（`least_squares(method='trf', loss='huber')`） |
