@@ -1,0 +1,14 @@
+粗整列レスキュー実験（失敗10ケース、seed=1, トリミングKabsch 3回/2.0deg）
+
+pos=  5cm ang=20deg: 生マッチ 615 Kabsch使用 577 残差中央値0.18deg | 補正後誤差 5.0cm/0.83deg | 成功 最終 0.14mm/0.0032deg
+pos=  5cm ang=30deg: 生マッチ 468 Kabsch使用 395 残差中央値0.18deg | 補正後誤差 5.0cm/0.85deg | 成功 最終 0.11mm/0.0027deg
+pos= 10cm ang=20deg: 生マッチ 588 Kabsch使用 552 残差中央値0.34deg | 補正後誤差 10.0cm/1.62deg | 成功 最終 0.11mm/0.0016deg
+pos= 10cm ang=30deg: 生マッチ 400 Kabsch使用 345 残差中央値0.36deg | 補正後誤差 10.0cm/1.72deg | 成功 最終 0.04mm/0.0017deg
+pos= 20cm ang=20deg: 生マッチ 470 Kabsch使用 427 残差中央値0.63deg | 補正後誤差 20.0cm/3.18deg | 成功 最終 0.06mm/0.0020deg
+pos= 20cm ang=30deg: 生マッチ 366 Kabsch使用 284 残差中央値0.72deg | 補正後誤差 20.0cm/3.40deg | 成功 最終 0.06mm/0.0014deg
+pos= 30cm ang=20deg: 生マッチ 428 Kabsch使用 362 残差中央値0.92deg | 補正後誤差 30.0cm/4.77deg | 成功 最終 0.06mm/0.0021deg
+pos= 30cm ang=30deg: 生マッチ 316 Kabsch使用 240 残差中央値1.00deg | 補正後誤差 30.0cm/5.00deg | 成功 最終 0.19mm/0.0027deg
+pos= 50cm ang=20deg: 生マッチ 288 Kabsch使用 196 残差中央値1.01deg | 補正後誤差 50.0cm/7.32deg | 成功 最終 0.19mm/0.0030deg
+pos= 50cm ang=30deg: 生マッチ 244 Kabsch使用  92 残差中央値0.26deg | 補正後誤差 50.0cm/6.19deg | 成功 最終 0.05mm/0.0032deg
+
+レスキュー成功 10/10

@@ -1,0 +1,29 @@
+収束域マップ（seed=1, k_max=5, 成功判定: <5mm & <0.05deg）
+
+pos=  5cm ang= 2deg: 成功                   反復2 最終誤差     0.05mm /  0.0015deg
+pos=  5cm ang= 5deg: 成功                   反復2 最終誤差     0.07mm /  0.0026deg
+pos=  5cm ang=10deg: 成功                   反復2 最終誤差     0.04mm /  0.0025deg
+pos=  5cm ang=20deg: 失敗(ゲート生存 N=0 < 30)   反復1 最終誤差    50.00mm / 20.0000deg
+pos=  5cm ang=30deg: 失敗(ゲート生存 N=0 < 30)   反復1 最終誤差    50.00mm / 30.0000deg
+pos= 10cm ang= 2deg: 成功                   反復2 最終誤差     0.03mm /  0.0008deg
+pos= 10cm ang= 5deg: 成功                   反復2 最終誤差     0.05mm /  0.0010deg
+pos= 10cm ang=10deg: 成功                   反復2 最終誤差     0.06mm /  0.0008deg
+pos= 10cm ang=20deg: 失敗(ゲート生存 N=0 < 30)   反復1 最終誤差   100.00mm / 20.0000deg
+pos= 10cm ang=30deg: 失敗(ゲート生存 N=0 < 30)   反復1 最終誤差   100.00mm / 30.0000deg
+pos= 20cm ang= 2deg: 成功                   反復2 最終誤差     0.13mm /  0.0036deg
+pos= 20cm ang= 5deg: 成功                   反復2 最終誤差     0.14mm /  0.0042deg
+pos= 20cm ang=10deg: 成功                   反復2 最終誤差     0.07mm /  0.0023deg
+pos= 20cm ang=20deg: 失敗(ゲート生存 N=1 < 30)   反復1 最終誤差   200.00mm / 20.0000deg
+pos= 20cm ang=30deg: 失敗(ゲート生存 N=2 < 30)   反復1 最終誤差   200.00mm / 30.0000deg
+pos= 30cm ang= 2deg: 成功                   反復2 最終誤差     0.18mm /  0.0029deg
+pos= 30cm ang= 5deg: 成功                   反復2 最終誤差     0.08mm /  0.0025deg
+pos= 30cm ang=10deg: 成功                   反復2 最終誤差     0.05mm /  0.0004deg
+pos= 30cm ang=20deg: 失敗(ゲート生存 N=2 < 30)   反復1 最終誤差   300.00mm / 20.0000deg
+pos= 30cm ang=30deg: 失敗(ゲート生存 N=0 < 30)   反復1 最終誤差   300.00mm / 30.0000deg
+pos= 50cm ang= 2deg: 成功                   反復2 最終誤差     0.13mm /  0.0029deg
+pos= 50cm ang= 5deg: 成功                   反復3 最終誤差     0.06mm /  0.0007deg
+pos= 50cm ang=10deg: 成功                   反復3 最終誤差     0.01mm /  0.0003deg
+pos= 50cm ang=20deg: 失敗(ゲート生存 N=2 < 30)   反復1 最終誤差   500.00mm / 20.0000deg
+pos= 50cm ang=30deg: 失敗(ゲート生存 N=1 < 30)   反復1 最終誤差   500.00mm / 30.0000deg
+
+成功 15/25, silent failure 0 件
