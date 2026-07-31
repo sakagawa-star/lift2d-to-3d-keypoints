@@ -1,0 +1,211 @@
+feat-026 M3: ドメインギャップ検証(実写クエリ)本実験
+criteria: criteria.md(locked 2026-07-31) / K_MAX=5 / N_MIN=30
+入力: PLY=/home/sakagawa/data/PLY/HandaiHospital-20260418-01/point_cloud/iteration_100/point_cloud.ply
+      TOML=/home/sakagawa/git/pose2sim/Pose2Sim/20260418_osaka-hosp1/calibration/Config_scene.toml
+      クエリ=/home/sakagawa/git/lift2d-to-3d-keypoints/phase0/data/osaka2/images/cam*.png
+バージョン: OpenCV 4.13.0 / NumPy 2.2.6
+
+§2 事前確認: Config_scene vs intrinsics_all の K・歪み差(記録のみ)
+  cam05520126: Δfx=+48.7 Δfy=+47.2 Δcx=+22.2 Δcy=+29.8 |ΔD|max=0.0153
+  cam05520129: Δfx=+50.2 Δfy=+50.6 Δcx=+7.7 Δcy=-1.2 |ΔD|max=0.0285
+  cam41520554: Δfx=+104.4 Δfy=+105.3 Δcx=+16.3 Δcy=+21.7 |ΔD|max=0.0339
+  cam41520556: Δfx=+65.0 Δfy=+67.9 Δcx=+27.1 Δcy=-8.1 |ΔD|max=0.0501
+  cam41520557: Δfx=+120.2 Δfy=+116.8 Δcx=+9.7 Δcy=+37.2 |ΔD|max=0.0687
+
+=== cam05520126 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ300 N=234 inl=213 RMSE=1.702px vol=0.213 zrange=3.91m area=0.533 | 更新量 10.20mm/0.1482deg
+  k=1: OK | マッチ319 N=227 inl=176 RMSE=0.946px vol=0.190 zrange=2.83m area=0.604 | 更新量 5.62mm/0.0704deg
+  k=2: OK | マッチ307 N=226 inl=177 RMSE=0.911px vol=0.196 zrange=4.11m area=0.562 | 更新量 4.56mm/0.0541deg
+  k=3: OK | マッチ325 N=225 inl=178 RMSE=0.971px vol=0.229 zrange=4.11m area=0.619 | 更新量 1.90mm/0.0261deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.261cm / 0.1854deg
+[P1] 摂動 5cm/2deg seed=11 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ277 N=208 inl=193 RMSE=2.013px vol=0.148 zrange=4.18m area=0.580 | 更新量 39.89mm/2.0487deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ299 N=213 inl=167 RMSE=1.034px vol=0.211 zrange=4.15m area=0.623 | 更新量 2.83mm/0.0485deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.233cm / 0.1701deg
+[P2] 摂動 5cm/2deg seed=12 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ290 N=215 inl=192 RMSE=1.922px vol=0.218 zrange=4.07m area=0.552 | 更新量 41.10mm/1.8323deg
+  k=1: OK | マッチ317 N=226 inl=175 RMSE=0.987px vol=0.209 zrange=2.82m area=0.613 | 更新量 4.31mm/0.0719deg
+  k=2: OK | マッチ329 N=232 inl=177 RMSE=0.898px vol=0.163 zrange=4.11m area=0.572 | 更新量 4.01mm/0.0620deg
+  k=3: OK | マッチ319 N=225 inl=173 RMSE=0.978px vol=0.202 zrange=4.15m area=0.595 | 更新量 3.12mm/0.0399deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.190cm / 0.1507deg
+[P3] 摂動 20cm/5deg seed=13 (実摂動 20.00cm/5.00deg)
+  k=0: OK | マッチ207 N=151 inl=137 RMSE=1.707px vol=0.218 zrange=3.72m area=0.343 | 更新量 204.30mm/4.9056deg
+  k=1: OK | マッチ317 N=225 inl=174 RMSE=0.905px vol=0.198 zrange=2.81m area=0.538 | 更新量 2.89mm/0.0430deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.260cm / 0.1890deg
+[P4] 摂動 50cm/10deg seed=14 (実摂動 50.00cm/10.00deg)
+  k=0: OK | マッチ131 N=97 inl=81 RMSE=1.977px vol=0.255 zrange=2.34m area=0.265 | 更新量 492.60mm/9.8309deg
+  k=1: OK | マッチ302 N=213 inl=165 RMSE=0.902px vol=0.207 zrange=2.85m area=0.506 | 更新量 12.76mm/0.1933deg
+  k=2: OK | マッチ332 N=227 inl=165 RMSE=0.901px vol=0.170 zrange=4.11m area=0.442 | 更新量 3.65mm/0.0456deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.306cm / 0.1730deg
+  同一解判定: 最大ペア間 0.276cm/0.0430deg → 同一解
+  一致性判定: P0差 1.261cm/0.1854deg vs 閾値 2.55cm/0.35deg → 一致
+  手動点再投影中央値[px]: 基準 全点1.51/名簿1.48 → P0解 全点1.49/名簿1.39 (悪化なし)
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+
+=== cam05520129 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ446 N=340 inl=310 RMSE=2.057px vol=0.174 zrange=2.59m area=0.767 | 更新量 6.61mm/0.1570deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ475 N=346 inl=211 RMSE=1.107px vol=0.146 zrange=1.99m area=0.457 | 更新量 11.61mm/0.2665deg
+  k=2: OK | マッチ434 N=309 inl=190 RMSE=1.170px vol=0.203 zrange=2.02m area=0.412 | 更新量 13.33mm/0.2157deg
+  k=3: OK | マッチ445 N=326 inl=191 RMSE=1.108px vol=0.150 zrange=2.22m area=0.581 | 更新量 9.62mm/0.2158deg
+  k=4: OK | マッチ456 N=320 inl=203 RMSE=1.190px vol=0.119 zrange=2.32m area=0.594 | 更新量 4.81mm/0.0931deg
+  最終解と基準ポーズの差: 0.260cm / 0.0728deg
+[P1] 摂動 5cm/2deg seed=11 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ409 N=296 inl=239 RMSE=2.384px vol=0.166 zrange=2.48m area=0.623 | 更新量 50.14mm/2.0501deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ445 N=317 inl=214 RMSE=1.170px vol=0.183 zrange=2.36m area=0.601 | 更新量 4.83mm/0.1402deg
+  k=2: OK | マッチ458 N=324 inl=204 RMSE=1.091px vol=0.153 zrange=2.03m area=0.486 | 更新量 7.00mm/0.1443deg
+  k=3: OK | マッチ439 N=307 inl=188 RMSE=1.099px vol=0.147 zrange=2.00m area=0.451 | 更新量 3.46mm/0.0797deg
+  k=4: OK | マッチ449 N=308 inl=202 RMSE=1.148px vol=0.140 zrange=2.38m area=0.475 | 更新量 0.95mm/0.0264deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.348cm / 0.3305deg
+[P2] 摂動 5cm/2deg seed=12 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ370 N=292 inl=239 RMSE=2.081px vol=0.157 zrange=2.19m area=0.642 | 更新量 44.31mm/1.9118deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ425 N=303 inl=192 RMSE=1.141px vol=0.143 zrange=2.02m area=0.422 | 更新量 15.90mm/0.3653deg
+  k=2: OK | マッチ437 N=311 inl=198 RMSE=1.074px vol=0.169 zrange=1.93m area=0.423 | 更新量 2.90mm/0.0927deg
+  k=3: OK | マッチ444 N=302 inl=185 RMSE=1.177px vol=0.175 zrange=2.21m area=0.647 | 更新量 15.85mm/0.3676deg
+  k=4: OK | マッチ441 N=326 inl=209 RMSE=1.121px vol=0.216 zrange=2.02m area=0.486 | 更新量 9.19mm/0.2165deg
+  最終解と基準ポーズの差: 0.832cm / 0.2421deg
+[P3] 摂動 20cm/5deg seed=13 (実摂動 20.00cm/5.00deg)
+  k=0: OK | マッチ263 N=173 inl=147 RMSE=2.565px vol=0.069 zrange=1.68m area=0.455 | 更新量 198.55mm/4.9599deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ438 N=295 inl=201 RMSE=1.207px vol=0.169 zrange=2.29m area=0.629 | 更新量 7.73mm/0.0581deg
+  k=2: OK | マッチ449 N=313 inl=199 RMSE=1.173px vol=0.208 zrange=2.22m area=0.643 | 更新量 1.98mm/0.0437deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.640cm / 0.1425deg
+[P4] 摂動 50cm/10deg seed=14 (実摂動 50.00cm/10.00deg)
+  k=0: OK | マッチ276 N=94 inl=64 RMSE=2.440px vol=0.029 zrange=1.53m area=0.450 | 更新量 506.83mm/10.0218deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ439 N=306 inl=203 RMSE=1.124px vol=0.224 zrange=1.77m area=0.585 | 更新量 11.10mm/0.1858deg
+  k=2: OK | マッチ446 N=312 inl=197 RMSE=1.079px vol=0.139 zrange=1.79m area=0.549 | 更新量 10.00mm/0.2005deg
+  k=3: OK | マッチ435 N=300 inl=199 RMSE=1.128px vol=0.233 zrange=2.03m area=0.555 | 更新量 5.99mm/0.0748deg
+  k=4: OK | マッチ438 N=310 inl=198 RMSE=1.082px vol=0.140 zrange=2.11m area=0.439 | 更新量 7.86mm/0.1290deg
+  最終解と基準ポーズの差: 1.531cm / 0.3909deg
+  同一解判定: P0/P1/P2 に不成立系列があるため不合格
+  一致性判定: P0差 0.260cm/0.0728deg vs 閾値 2.29cm/0.46deg → 不一致
+  手動点再投影中央値[px]: 基準 全点2.48/名簿2.26 → P0解 全点3.02/名簿2.83 (悪化(記録のみ))
+  カメラ判定: 成立=False 同一解=False 一致=False → FAIL
+
+=== cam41520554 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ291 N=244 inl=228 RMSE=2.657px vol=0.081 zrange=2.95m area=0.893 | 更新量 10.03mm/0.2406deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ303 N=253 inl=118 RMSE=1.155px vol=0.053 zrange=2.99m area=0.740 | 更新量 7.39mm/0.1466deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ295 N=233 inl=117 RMSE=1.225px vol=0.058 zrange=2.50m area=0.692 | 更新量 4.20mm/0.0657deg | 警告: vol_ratio<0.09
+  k=3: OK | マッチ290 N=206 inl=113 RMSE=1.159px vol=0.061 zrange=2.51m area=0.726 | 更新量 3.12mm/0.0465deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.603cm / 0.2989deg
+[P1] 摂動 5cm/2deg seed=11 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ238 N=219 inl=202 RMSE=2.723px vol=0.075 zrange=3.34m area=0.812 | 更新量 47.06mm/1.8801deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ308 N=253 inl=132 RMSE=1.224px vol=0.057 zrange=3.15m area=0.704 | 更新量 8.77mm/0.1360deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ297 N=225 inl=129 RMSE=1.210px vol=0.059 zrange=2.85m area=0.750 | 更新量 1.48mm/0.0448deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.662cm / 0.3100deg
+[P2] 摂動 5cm/2deg seed=12 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ243 N=207 inl=191 RMSE=2.708px vol=0.076 zrange=2.87m area=0.818 | 更新量 45.19mm/2.2253deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ295 N=243 inl=118 RMSE=1.241px vol=0.035 zrange=2.74m area=0.835 | 更新量 2.54mm/0.0623deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ304 N=244 inl=113 RMSE=1.232px vol=0.094 zrange=1.94m area=0.349 | 更新量 22.94mm/0.6382deg
+  k=3: OK | マッチ295 N=211 inl=107 RMSE=1.118px vol=0.092 zrange=1.93m area=0.305 | 更新量 1.66mm/0.0529deg
+  k=4: OK | マッチ290 N=189 inl=108 RMSE=0.966px vol=0.114 zrange=1.93m area=0.291 | 更新量 17.06mm/0.2761deg
+  最終解と基準ポーズの差: 0.489cm / 0.2251deg
+[P3] 摂動 20cm/5deg seed=13 (実摂動 20.00cm/5.00deg)
+  k=0: OK | マッチ160 N=123 inl=91 RMSE=2.226px vol=0.044 zrange=2.50m area=0.554 | 更新量 212.05mm/5.1855deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ296 N=241 inl=117 RMSE=1.194px vol=0.050 zrange=2.98m area=0.772 | 更新量 10.62mm/0.2271deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ304 N=220 inl=125 RMSE=1.242px vol=0.070 zrange=2.85m area=0.737 | 更新量 1.10mm/0.0245deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.710cm / 0.3133deg
+[P4] 摂動 50cm/10deg seed=14 (実摂動 50.00cm/10.00deg)
+  k=0: OK | マッチ57 N=40 inl=30 RMSE=2.633px vol=0.022 zrange=2.63m area=0.349 | 更新量 509.45mm/9.8879deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ297 N=224 inl=108 RMSE=1.182px vol=0.069 zrange=2.49m area=0.716 | 更新量 4.32mm/0.1593deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ297 N=219 inl=119 RMSE=1.227px vol=0.054 zrange=2.84m area=0.766 | 更新量 5.64mm/0.0601deg | 警告: vol_ratio<0.09
+  k=3: OK | マッチ297 N=245 inl=123 RMSE=1.224px vol=0.039 zrange=2.63m area=0.829 | 更新量 4.45mm/0.0716deg | 警告: vol_ratio<0.09
+  k=4: OK | マッチ300 N=246 inl=120 RMSE=1.152px vol=0.037 zrange=2.93m area=0.865 | 更新量 1.52mm/0.0493deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.085cm / 0.2944deg
+  同一解判定: P0/P1/P2 に不成立系列があるため不合格
+  一致性判定: P0差 1.603cm/0.2989deg vs 閾値 1.84cm/0.39deg → 一致
+  手動点再投影中央値[px]: 基準 全点3.30/名簿3.40 → P0解 全点3.55/名簿2.88 (悪化なし)
+  カメラ判定: 成立=True 同一解=False 一致=True → FAIL
+
+=== cam41520556 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ380 N=296 inl=260 RMSE=1.985px vol=0.149 zrange=1.63m area=0.832 | 更新量 11.00mm/0.2247deg
+  k=1: OK | マッチ370 N=259 inl=194 RMSE=1.060px vol=0.150 zrange=1.44m area=0.810 | 更新量 3.24mm/0.0623deg
+  k=2: OK | マッチ359 N=254 inl=186 RMSE=1.012px vol=0.140 zrange=1.48m area=0.754 | 更新量 2.44mm/0.0564deg
+  k=3: OK | マッチ351 N=250 inl=191 RMSE=1.038px vol=0.191 zrange=1.64m area=0.784 | 更新量 3.06mm/0.0663deg
+  k=4: OK | マッチ359 N=256 inl=186 RMSE=1.057px vol=0.200 zrange=1.64m area=0.658 | 更新量 1.60mm/0.0313deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.045cm / 0.2234deg
+[P1] 摂動 5cm/2deg seed=11 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ325 N=259 inl=223 RMSE=2.151px vol=0.143 zrange=1.61m area=0.744 | 更新量 48.30mm/1.9449deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ367 N=261 inl=176 RMSE=1.042px vol=0.114 zrange=1.42m area=0.778 | 更新量 3.59mm/0.0683deg
+  k=2: OK | マッチ349 N=249 inl=187 RMSE=1.027px vol=0.160 zrange=1.47m area=0.688 | 更新量 6.62mm/0.1296deg
+  k=3: OK | マッチ365 N=260 inl=175 RMSE=1.046px vol=0.147 zrange=1.48m area=0.697 | 更新量 3.02mm/0.0643deg
+  k=4: OK | マッチ364 N=257 inl=193 RMSE=1.036px vol=0.174 zrange=1.48m area=0.678 | 更新量 1.40mm/0.0379deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.883cm / 0.1850deg
+[P2] 摂動 5cm/2deg seed=12 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ319 N=249 inl=218 RMSE=1.987px vol=0.172 zrange=1.57m area=0.688 | 更新量 50.33mm/2.1526deg
+  k=1: OK | マッチ352 N=250 inl=171 RMSE=1.087px vol=0.248 zrange=1.64m area=0.640 | 更新量 2.27mm/0.0472deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.123cm / 0.2420deg
+[P3] 摂動 20cm/5deg seed=13 (実摂動 20.00cm/5.00deg)
+  k=0: OK | マッチ306 N=226 inl=194 RMSE=2.213px vol=0.170 zrange=1.49m area=0.683 | 更新量 202.18mm/5.2141deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ374 N=271 inl=204 RMSE=1.009px vol=0.151 zrange=1.48m area=0.825 | 更新量 4.56mm/0.1083deg
+  k=2: OK | マッチ355 N=252 inl=198 RMSE=1.065px vol=0.142 zrange=1.48m area=0.804 | 更新量 1.31mm/0.0293deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.850cm / 0.1720deg
+[P4] 摂動 50cm/10deg seed=14 (実摂動 50.00cm/10.00deg)
+  k=0: OK | マッチ131 N=85 inl=67 RMSE=2.662px vol=0.096 zrange=1.30m area=0.494 | 更新量 495.49mm/9.8994deg | 警告: RMSE>2.0px,depth_range<1.4m
+  k=1: OK | マッチ359 N=259 inl=187 RMSE=1.047px vol=0.273 zrange=1.63m area=0.679 | 更新量 14.24mm/0.3032deg
+  k=2: OK | マッチ361 N=263 inl=190 RMSE=1.017px vol=0.190 zrange=1.44m area=0.610 | 更新量 4.48mm/0.0968deg
+  k=3: OK | マッチ381 N=257 inl=186 RMSE=1.026px vol=0.202 zrange=1.64m area=0.721 | 更新量 2.72mm/0.0586deg
+  k=4: OK | マッチ368 N=271 inl=210 RMSE=1.051px vol=0.155 zrange=1.44m area=0.816 | 更新量 2.90mm/0.0678deg
+  最終解と基準ポーズの差: 0.836cm / 0.1661deg
+  同一解判定: 最大ペア間 0.327cm/0.0683deg → 同一解
+  一致性判定: P0差 1.045cm/0.2234deg vs 閾値 2.05cm/0.44deg → 一致
+  手動点再投影中央値[px]: 基準 全点2.10/名簿2.10 → P0解 全点2.52/名簿2.52 (悪化(記録のみ))
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+
+=== cam41520557 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ258 N=231 inl=221 RMSE=1.844px vol=0.286 zrange=2.93m area=0.590 | 更新量 7.13mm/0.1386deg
+  k=1: OK | マッチ273 N=224 inl=167 RMSE=0.940px vol=0.305 zrange=2.55m area=0.516 | 更新量 4.15mm/0.0714deg
+  k=2: OK | マッチ271 N=223 inl=178 RMSE=1.014px vol=0.310 zrange=2.72m area=0.534 | 更新量 3.79mm/0.0613deg
+  k=3: OK | マッチ263 N=218 inl=173 RMSE=0.995px vol=0.336 zrange=2.65m area=0.575 | 更新量 1.44mm/0.0285deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.591cm / 0.1214deg
+[P1] 摂動 5cm/2deg seed=11 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ226 N=201 inl=191 RMSE=1.779px vol=0.325 zrange=2.63m area=0.548 | 更新量 54.51mm/1.9832deg
+  k=1: OK | マッチ276 N=228 inl=164 RMSE=0.925px vol=0.284 zrange=2.51m area=0.522 | 更新量 2.11mm/0.0518deg
+  k=2: OK | マッチ271 N=221 inl=169 RMSE=1.003px vol=0.324 zrange=2.85m area=0.528 | 更新量 0.61mm/0.0060deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.900cm / 0.1854deg
+[P2] 摂動 5cm/2deg seed=12 (実摂動 5.00cm/2.00deg)
+  k=0: OK | マッチ253 N=222 inl=205 RMSE=1.783px vol=0.292 zrange=2.69m area=0.559 | 更新量 54.52mm/1.9589deg
+  k=1: OK | マッチ260 N=216 inl=170 RMSE=0.970px vol=0.284 zrange=2.87m area=0.512 | 更新量 2.69mm/0.0551deg
+  k=2: OK | マッチ267 N=220 inl=164 RMSE=1.025px vol=0.376 zrange=2.55m area=0.524 | 更新量 2.50mm/0.0463deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.752cm / 0.1404deg
+[P3] 摂動 20cm/5deg seed=13 (実摂動 20.00cm/5.00deg)
+  k=0: OK | マッチ195 N=172 inl=160 RMSE=2.095px vol=0.283 zrange=2.52m area=0.414 | 更新量 196.10mm/4.8630deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ257 N=216 inl=166 RMSE=0.992px vol=0.219 zrange=2.83m area=0.508 | 更新量 2.95mm/0.0703deg
+  k=2: OK | マッチ252 N=213 inl=155 RMSE=0.996px vol=0.298 zrange=2.68m area=0.515 | 更新量 2.45mm/0.0411deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.839cm / 0.1748deg
+[P4] 摂動 50cm/10deg seed=14 (実摂動 50.00cm/10.00deg)
+  k=0: OK | マッチ113 N=87 inl=74 RMSE=1.905px vol=0.144 zrange=1.33m area=0.247 | 更新量 492.32mm/9.8744deg | 警告: depth_range<1.4m
+  k=1: OK | マッチ263 N=219 inl=161 RMSE=0.922px vol=0.297 zrange=2.59m area=0.550 | 更新量 4.94mm/0.0714deg
+  k=2: OK | マッチ278 N=227 inl=178 RMSE=1.060px vol=0.297 zrange=2.65m area=0.575 | 更新量 4.76mm/0.0810deg
+  k=3: OK | マッチ263 N=210 inl=158 RMSE=0.947px vol=0.348 zrange=2.55m area=0.518 | 更新量 5.42mm/0.0921deg
+  k=4: OK | マッチ269 N=218 inl=160 RMSE=1.025px vol=0.233 zrange=2.64m area=0.499 | 更新量 4.94mm/0.0913deg
+  最終解と基準ポーズの差: 0.800cm / 0.1632deg
+  同一解判定: 最大ペア間 0.323cm/0.0667deg → 同一解
+  一致性判定: P0差 0.591cm/0.1214deg vs 閾値 2.40cm/0.41deg → 一致
+  手動点再投影中央値[px]: 基準 全点1.90/名簿1.90 → P0解 全点2.07/名簿2.07 (悪化(記録のみ))
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+
+=== M3 判定(criteria.md §6) === PASS 3/5 → Go
+SIFT 不成立カメラ(M3b 検討対象): ['cam05520129']
