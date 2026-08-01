@@ -1,0 +1,26 @@
+M4 Stage 0: 疎通確認(criteria.md §8-1。合否判定はしない)
+シーン: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/point_cloud.ply
+クエリ: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/images/cam05520125.png
+near_plane=0.5 / distort=True
+
+手動プロット点: 6点 (基準_001, 基準_002, 基準_003, 基準_004, 基準_005, 基準_006)
+6点PnP: 成功 inlier=5/6 outlier=['基準_002']
+  rvec=[1.126826374137973, 0.8922625838488656, -1.1258596739874558]
+  tvec=[-1.144624112139294, 1.0001546889070103, 1.4771526868973213]
+  カメラ中心(世界座標)=[1.8788515293224755, 0.7437059692183166, 0.6397438411997105]
+
+手動6点の再投影誤差(初期ポーズ):
+  基準_001: 2.285px
+  基準_002: 19.800px
+  基準_003: 2.018px
+  基準_004: 2.093px
+  基準_005: 5.413px
+  基準_006: 2.180px
+  中央値=2.233px 最大=19.800px
+
+レンダ有効画素率(α>0.5): 1.000
+有効深度分布: min=0.501m p5=0.676m 中央値=1.287m p95=1.934m max=2.479m
+z範囲(0.5,10.0)mとの干渉: 下限以下 0.0% / 上限以上 0.0%(criteria.md §4: 記録のみ。合否救済には使わない)
+SIFT キーポイント数: 実写=3710 レンダ=3898 比(レンダ/実写)=1.051
+
+重畳PNG: m4_stage0_overlay.png(緑=手動2D点, 赤=初期ポーズ再投影)。座標系整合はユーザー目視で確認する

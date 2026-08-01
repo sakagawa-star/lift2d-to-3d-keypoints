@@ -1,0 +1,33 @@
+M4 本実験: 檻環境パイロット(criteria.md locked 2026-08-01)
+シーン: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/point_cloud.ply
+クエリ: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/images/cam05520125.png
+near_plane=0.5 / distort=True / N_S=20 r_pos=2cm r_ang=0.3deg f_c≥0.7
+
+6点PnP: 成功 inlier=5/6 outlier=['基準_002']
+チェーン A: 初期値=6点PnP解(無摂動)
+  j=0(k=0): 失敗(ゲート生存 N=26 < 30) → 明示的失敗
+チェーン B: 初期値=6点PnP解+摂動 5cm/2.0° (seed=11, 実摂動 5.00cm/2.00°)
+  j=0(k=0): 失敗(ゲート生存 N=14 < 30) → 明示的失敗
+チェーン C: 初期値=6点PnP解+摂動 5cm/2.0° (seed=12, 実摂動 5.00cm/2.00°)
+  j=0(k=0): 失敗(ゲート生存 N=19 < 30) → 明示的失敗
+
+§6.1 成立性: 不成立(チェーン成立 0/3, サンプル 0/60)
+  チェーン A 失敗段: k=0: ゲート生存 N=26 < 30
+  チェーン B 失敗段: k=0: ゲート生存 N=14 < 30
+  チェーン C 失敗段: k=0: ゲート生存 N=19 < 30
+
+§6.3 実測 k=0(3/3 反復):
+  (b-1) 生マッチ候補: 3898〜4461(中央値 4326)
+  (b-1) ratio後: 97〜109(中央値 108)
+  (b-1) 変位ゲート後: 66〜78(中央値 73)
+  (b-1) 深度系ゲート後 N: 14〜26(中央値 19)
+  (b-2) 深度NaN/広がり除外(変位通過分母): 39.7〜54.5%
+  (b-2) α除外(変位通過分母): 0.0〜0.0%
+  (b-2) z範囲除外(変位通過分母): 0.0〜0.0%
+  (b-2) 深度分散除外(変位通過分母): 20.5〜26.9%
+  (b-4) レンダ有効画素率: 1.000〜1.000
+  (b-4) SIFT数比(レンダ/実写): 1.051〜1.202
+§6.3 実測 k≥1(0/60 反復、未実行分あり):
+  (取得データなし)
+
+§7 判定: No-Go(成立性不成立。失敗段は上記)

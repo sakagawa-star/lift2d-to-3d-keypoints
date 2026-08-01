@@ -44,3 +44,6 @@ phase4/data/
 
 # Codexレビューの過程ログ（結果 result.md のみ git 管理する）
 docs/issues/*/reviews/*.full.log
+
+# 実験用データディレクトリ（PLY・画像・CSV・TOML等の実測データ）
+docs/issues/*/experiments/*/data/
