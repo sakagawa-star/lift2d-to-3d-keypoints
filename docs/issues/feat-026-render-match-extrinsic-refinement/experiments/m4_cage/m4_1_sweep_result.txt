@@ -1,0 +1,36 @@
+M4-1 フェーズ0+1: 深度ゲート定数の較正スイープ(criteria_m4_1.md locked 2026-08-02)
+シーン: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/point_cloud.ply
+クエリ: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/images/cam05520125.png
+グリッド: rel_spread_th=[0.05, 0.1, 0.15, 0.2] × GATE_VAR_REL=[0.02, 0.04, 0.08]
+固定: α>0.5, z∈(0.5, 10.0)m, ratio=0.75, τ_px(k=0)=250.0px, N_min=30
+
+6点PnP: 成功 inlier=5/6 outlier=['基準_002']
+== フェーズ0: 再現検証 ==
+チェーン A: n_raw=3898 ratio後=97 n_disp=78 excl_nan/広がり=31(真NaN=0+広がり=31) α=0 z=0 分散=21 N=26 → 一致
+チェーン B: 摂動 5cm/2.0° (seed=11, 実摂動 5.00cm/2.00°)
+チェーン B: n_raw=4461 ratio後=109 n_disp=66 excl_nan/広がり=36(真NaN=0+広がり=36) α=0 z=0 分散=16 N=14 → 一致
+チェーン C: 摂動 5cm/2.0° (seed=12, 実摂動 5.00cm/2.00°)
+チェーン C: n_raw=4326 ratio後=108 n_disp=73 excl_nan/広がり=39(真NaN=0+広がり=39) α=0 z=0 分散=15 N=19 → 一致
+中間生成物: m4_1_intermediates.npz(ローカル)
+フェーズ0 成立: 3チェーンとも期待値表と完全一致
+
+== フェーズ1: 較正スイープ(12組) ==
+spread=0.05 var=0.02 (変更度0): A:N=26 B:N=14 C:N=19 → 不適格
+spread=0.05 var=0.04 (変更度1): A:N=32 B:N=22 C:N=22 → 不適格
+spread=0.05 var=0.08 (変更度2): A:N=36 B:N=24 C:N=26 → 不適格
+spread=0.10 var=0.02 (変更度1): A:N=26 B:N=14 C:N=19 → 不適格
+spread=0.10 var=0.04 (変更度2): A:N=33 B:N=22 C:N=22 → 不適格
+spread=0.10 var=0.08 (変更度3): A:N=38 B:N=24 C:N=26 → 不適格
+spread=0.15 var=0.02 (変更度2): A:N=26 B:N=14 C:N=19 → 不適格
+spread=0.15 var=0.04 (変更度3): A:N=33 B:N=22 C:N=22 → 不適格
+spread=0.15 var=0.08 (変更度4): A:N=39 B:N=24 C:N=26 → 不適格
+spread=0.20 var=0.02 (変更度3): A:N=26 B:N=14 C:N=19 → 不適格
+spread=0.20 var=0.04 (変更度4): A:N=33 B:N=22 C:N=22 → 不適格
+spread=0.20 var=0.08 (変更度5): A:N=39 B:N=24 C:N=26 → 不適格
+全組×全チェーンの除外内訳(分離込み): m4_1_sweep_table.csv(コミット対象)
+
+チェーン A: 変位後 78 件中、真NaN除外 0 件は定数緩和では救済不能(criteria §3.3)
+チェーン B: 変位後 66 件中、真NaN除外 0 件は定数緩和では救済不能(criteria §3.3)
+チェーン C: 変位後 73 件中、真NaN除外 0 件は定数緩和では救済不能(criteria §3.3)
+
+適格な組なし → フェーズ1 で No-Go(criteria §5.5。フェーズ2 に進まない)
