@@ -38,7 +38,7 @@
 
 ## 環境セットアップ
 
-phase0 と phase4 は独立した uv 環境を持つ。
+phase0 と phase4、matcher_lab は独立した uv 環境を持つ。
 
 ```bash
 # phase0（プロジェクトルート）
@@ -46,6 +46,9 @@ uv sync
 
 # phase4（独立環境）
 uv sync --project phase4
+
+# matcher_lab（独立環境。学習ベースマッチャー評価、feat-026 候補3）
+uv sync --project matcher_lab
 ```
 
 ## スクリプト実行
@@ -108,6 +111,10 @@ lift2d-to-3d-keypoints/
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   └── data/                          # データファイル（gitignore）
+├── matcher_lab/                       # 学習ベースマッチャー評価環境（独立した uv 環境。feat-026 候補3）
+│   ├── pyproject.toml                 # uv パッケージ管理（Python 3.12 / torch cu130 / kornia）
+│   ├── loftr_smoke.py                 # LoFTR（kornia）の環境疎通スモークテスト
+│   └── mast3r_smoke.py                # MASt3R（~/git/mast3r + ~/data/models/mast3r/）の環境疎通スモークテスト
 └── tests/                             # テストコード
     └── results/                       # テスト結果保存先
 ```

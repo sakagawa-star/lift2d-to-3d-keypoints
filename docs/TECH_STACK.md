@@ -1,11 +1,12 @@
 # 技術スタック
 
-本プロジェクトは独立した2つの uv 環境で構成される。
+本プロジェクトは独立した3つの uv 環境で構成される。
 
 - **phase0**（プロジェクトルート）: カメラパラメータ推定（NumPy / SciPy / OpenCV）
 - **phase4**（`phase4/`）: gsplat バッチレンダリング（torch / gsplat、CUDA）
+- **matcher_lab**（`matcher_lab/`）: 学習ベースマッチャー（LoFTR / MASt3R）の評価実験環境（feat-026 候補3。2026-08-02 新設）
 
-バージョンは `pyproject.toml`（定義・下限）と `uv.lock`（固定）に基づく。Python 3.10 環境での固定値を記載する。
+バージョンは `pyproject.toml`（定義・下限）と `uv.lock`（固定）に基づく。phase0 / phase4 は Python 3.10、matcher_lab は Python 3.12 環境での固定値を記載する。
 
 ## プロジェクト基盤
 
@@ -101,6 +102,36 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 - この環境変数で compute_90 の PTX を生成し、ドライバの JIT 変換で sm_120 上で実行する（ビルドキャッシュは `~/.cache/torch_extensions/py310_cu128/gsplat_cuda/`）
 - 恒久対策は CUDA Toolkit 12.8 以上のインストール（その場合この環境変数は不要になる）
 - なお torch 同梱の CUDA ランタイムは cu128（`nvidia-cuda-runtime-cu12 12.8.90`）。問題はシステム nvcc（12.6）が JIT ビルドに使われる点にある
+
+## matcher_lab（学習ベースマッチャー評価。feat-026 候補3）
+
+phase4 とは独立した実験環境。LoFTR（kornia 0.8.3 以降）が Python>=3.11 を要求し、phase4（Python 3.10）に同居できないため新設した（2026-08-02）。
+
+### 外部ライブラリ（`matcher_lab/pyproject.toml`）
+
+| ライブラリ名 | 定義 | uv.lock 固定 | 用途（1行） | 使用箇所 | 選定理由（1行） |
+|---|---|---|---|---|---|
+| kornia | >=0.8.3 | 0.8.3 | LoFTR（detector-free 学習ベースマッチャー）の組み込み実装 | loftr_smoke.py | 公式 zju3dv 実装より依存が軽く、pip のみで導入可（Apache 2.0） |
+| torch | >=2.0 | 2.13.0（+cu130） | LoFTR / MASt3R の推論バックエンド | loftr_smoke.py, mast3r_smoke.py | 両マッチャーの必須依存 |
+| torchvision | （指定なし） | 0.28.0（+cu130） | dust3r の画像前処理（transforms） | mast3r 経由 | dust3r/requirements.txt 記載 |
+| roma | （指定なし） | 1.5.7 | dust3r の回転表現ユーティリティ | mast3r 経由 | dust3r/requirements.txt 記載 |
+| einops | （指定なし） | 0.8.2 | MASt3R/dust3r のテンソル整形 | mast3r 経由 | dust3r/requirements.txt 記載 |
+| huggingface-hub[torch] | >=0.22 | 1.26.0 | dust3r のモデル読み込み基盤 | mast3r 経由 | dust3r/requirements.txt 記載 |
+| tqdm / scipy / matplotlib / trimesh | （指定なし） | 4.70.0 / 1.18.0 / 3.11.1 / 5.0.0 | dust3r の推論・可視化系依存 | mast3r 経由 | dust3r/requirements.txt 記載（gradio / tensorboard / pyglet はデモ・学習用のため除外） |
+| numpy / opencv-python / pillow | （指定なし） | 2.5.1 / 5.0.0.93 / 12.3.0 | 画像入出力・配列演算 | 各スクリプト | 共通基盤 |
+
+### 外部アセット（git 管理外）
+
+| アセット | 場所 | 入手元 | ライセンス |
+|---|---|---|---|
+| MASt3R リポジトリ（dust3r / croco サブモジュール込み） | `~/git/mast3r` | `git clone --recursive https://github.com/naver/mast3r` | CC BY-NC-SA 4.0（非商用研究は許諾。本プロジェクトは大学研究のため使用可） |
+| MASt3R チェックポイント（2.75GB） | `~/data/models/mast3r/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth` | download.europe.naverlabs.com | 同上 + CHECKPOINTS_NOTICE |
+| LoFTR 重み（outdoor、44.2MB） | `~/.cache/torch/hub/checkpoints/loftr_outdoor.ckpt` | kornia が初回実行時に自動ダウンロード | Apache 2.0 |
+
+### CUDA 実行環境（phase4 との違い）
+
+- torch 2.13.0+cu130 の PyPI 標準 wheel は RTX 5060 Ti（sm_120）をネイティブサポートし、**CUDA 拡張の JIT コンパイルが発生しないため `TORCH_CUDA_ARCH_LIST` は不要**（phase4 の gsplat とは事情が異なる）
+- MASt3R の RoPE2D CUDA カーネル（curope）は未コンパイル。起動時に `Warning, cannot find cuda-compiled version of RoPE2D, using a slow pytorch version instead` が出るが、純 torch フォールバックで動作する（速度低下のみ）
 
 ## バージョン固定ポリシー
 

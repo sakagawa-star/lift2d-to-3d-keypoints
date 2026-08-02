@@ -1,0 +1,24 @@
+[project]
+name = "matcher-lab"
+version = "0.1.0"
+description = "学習ベースマッチャー（LoFTR / MASt3R）の評価実験環境（feat-026 候補3）"
+requires-python = ">=3.11"
+dependencies = [
+    # LoFTR（kornia 組み込み実装。0.8.3 以降は Python>=3.11 要求）
+    "kornia>=0.8.3",
+    # MASt3R / dust3r の推論に必要な依存（dust3r/requirements.txt から推論に使う分を採用。
+    # gradio / tensorboard / pyglet はデモ・学習用のため除外）
+    "torch>=2.0",
+    "torchvision",
+    "roma",
+    "einops",
+    "tqdm",
+    "scipy",
+    "huggingface-hub[torch]>=0.22",
+    "matplotlib",
+    "trimesh",
+    # 共通
+    "numpy",
+    "opencv-python",
+    "pillow",
+]
