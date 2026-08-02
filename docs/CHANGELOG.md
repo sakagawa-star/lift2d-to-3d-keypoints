@@ -2,6 +2,18 @@
 
 ## リリース履歴
 
+### 2026-08-02
+
+- **feat-026**: レンダリング＋自動マッチングによる外部パラメータ自動リファイン
+  - 新規 `phase4/refine_extrinsics.py`: 手動プロット（一意6点以上・全点使用）+ 3DGS レンダ + LoFTR 自動マッチングで、K既知の外部パラメータをカメラ一括で精緻化。サンプリング型判定（3チェーン×20サンプルの pooled 合意 f_c≥0.7、二峰は手動点仲裁）で受理し、Calib_scene.toml 型の新規 TOML と診断レポートを出力（入力は不変・非対象カメラも保持）
+  - 新規 `matcher_lab/loftr_cli.py`: LoFTR（kornia 0.8.3、outdoor 重み、1280x720、conf≥0.2）推論 CLI。オフライン動作（重み sha256 検証）・決定的・CUDA OOM は終了コード42
+  - 新規 uv 環境 `matcher_lab/`（Python 3.12 / torch cu130。LoFTR が Python≥3.11 必須のため phase4 と分離し subprocess 連携）
+  - 検証フェーズ（criteria lock 方式、詳細は `docs/issues/feat-026-render-match-extrinsic-refinement/`）: M1 少点数PnP分布 → M2 合成収束域（50cm/10°）→ M3 実写 Go → M3-1/M3-2/D3 サンプリング型判定・二峰仲裁の確立 → M4 檻 SIFT No-Go → M4-1 深度ゲート再較正 No-Go → M3b/M4-2 で LoFTR への変更により病院・檻とも Go（ゲート後 N は SIFT 比 20〜100倍、檻の深度除外率も 60〜75%→28〜32% に半減）
+  - 手動テスト: 病院5カメラ 受理5/5（単峰 f_c=1.000、手動点PnP の外れ値検出が M3-0a 名簿と完全一致）、檻6点 受理（M4-2 実測と全数値一致=決定論の確認）
+  - ステップ7 差し戻し1件: 入力点数「ちょうど6点」→「6点以上・全点使用」（病院の既存多点 CSV を無加工で使用可能に。investigation.md イテレーション1）
+  - テスト: `tests/test_feat026_refine.py` 新規（クラスタ分析・逆写像・ゲート分類・TOML出力・多点PnP/仲裁）。全体 276 passed / 1 skipped（`tests/results/feat-026_test_result.txt`）。ルート pyproject.toml に pytest `testpaths=["tests"]` を追加（実験ファイルの誤収集を解消）
+  - Codex レビュー: criteria/スクリプト/要求・設計/差し戻しの全段で再帰レビュー収束（codex-56〜71）。実装は Sonnet サブエージェント委任、成果は「診断値ベースの運用受理」に限定（真値精度は主張しない）
+
 ### 2026-07-28
 
 - **bug-004**: estimate_camera_params.py Codex コードレビュー（方式2）と指摘対応

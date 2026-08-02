@@ -202,6 +202,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `filter_c3d.py` | C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相） |
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
+| `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
 
 ### camera_pose.py（カメラポーズ書き出し）
 
@@ -320,6 +321,25 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
 | `--no-png` | OFF | 連番PNG保存をスキップしMP4のみ出力（`--mp4` 併用必須。数万フレームで大幅高速化） | 動画のみ |
 
 静止画モードで動画専用オプションを指定するとエラー（終了コード2）になる。
+
+### refine_extrinsics.py（外部パラメータ精緻化。feat-026）
+
+手動プロット点（カメラごとに一意な 2D-3D 対応 **6点以上**。多点 CSV はそのまま全点使用）を初期値に、3DGS レンダと LoFTR 自動マッチングの反復でカメラ外部パラメータ（R, t）を精緻化する。内部パラメータは入力 TOML の値を使う（K既知）。
+
+```bash
+# プロジェクトルートで実行（phase4 環境 + matcher_lab 環境を subprocess 連携）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extrinsics.py \
+  --toml <入力TOML(Calib_scene形式)> --ply <3DGS PLY> --images-dir <実写画像ディレクトリ> \
+  --points-3d <3D基準点CSV> --points-2d <2D点CSV> \
+  --out-toml <出力TOML> --out-report <診断レポートtxt> \
+  [--cameras cam1 cam2 ...] [--overwrite] [--seed-base 5000] [--tmp-dir <中間ファイル置き場>]
+```
+
+- 実写画像は `{images-dir}/{カメラ名}.png`（1920x1080 のみ対応）。対象カメラ省略時は 2D点 CSV に行がある全カメラを逐次処理
+- 出力 TOML は入力の全カメラを保持し、受理カメラのみ rotation/translation を置換（入力ファイルは変更しない。既存出力の上書きは `--overwrite` 必須）
+- 受理判定はサンプリング型（3チェーン×20サンプルの合意 f_c≥0.7。二峰時は手動点再投影で仲裁）。結果・失敗段・診断値はレポート参照
+- 事前準備: `uv sync --project matcher_lab` と LoFTR 重みのローカル配置（初回のみ `matcher_lab/loftr_smoke.py` の実行で自動取得）。実行時はオフラインで動作
+- 処理時間の目安: 1カメラ 3〜6分（RTX 5060 Ti 実測）
 
 ## テスト
 

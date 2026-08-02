@@ -15,3 +15,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.pytest.ini_options]
+# docs/issues 配下の実験ファイル(*_test.py)を pytest の収集対象から外す
+testpaths = ["tests"]
