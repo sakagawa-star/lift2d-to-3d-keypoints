@@ -1,0 +1,103 @@
+feat-026 M4-2: 檻シーンへの学習ベースマッチャー適用
+criteria: criteria_m4_2.md(locked 2026-08-02) / N_S=20 / N_MIN=30
+シーン: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/point_cloud.ply
+クエリ: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/images/cam05520125.png
+LoFTR 解像度: 1280x720(criteria §3 固定)
+
+=== フェーズ0: 疎通 ===
+loftr_outdoor sha256: 一致
+loftr_indoor_new sha256: 一致
+mast3r ckpt サイズ: 2754910614 → 一致
+6点PnP: 成功 inlier=5/6 outlier=['基準_002']
+(a) SIFT 再現(M4 実測 k=0 の N との一致):
+  チェーンA: N=26(期待26) ratio後=97 → 一致
+  チェーンB: N=14(期待14) ratio後=109 → 一致
+  チェーンC: N=19(期待19) ratio後=108 → 一致
+(b) loftr_outdoor: 3235 マッチ, 範囲内率 1.000, round-trip 0.0000px → OK
+(b) loftr_indoor_new: 1816 マッチ, 範囲内率 1.000, round-trip 0.0000px → OK
+(b) mast3r: 2299 マッチ, 範囲内率 1.000, round-trip 0.0000px → OK
+(c) 再現性(同一入力2回目との差。記録のみ):
+  loftr_outdoor: マッチ数同一(3235) 座標最大差 0.0000px
+  loftr_indoor_new: マッチ数同一(1816) 座標最大差 0.0000px
+  mast3r: マッチ数同一(2299) 座標最大差 0.0000px
+フェーズ0 判定: 成立
+
+feat-026 M4-2: 檻シーンへの学習ベースマッチャー適用
+criteria: criteria_m4_2.md(locked 2026-08-02) / N_S=20 / N_MIN=30
+シーン: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/point_cloud.ply
+クエリ: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/images/cam05520125.png
+LoFTR 解像度: 1280x720(criteria §3 固定)
+
+=== フェーズ1: マッチング段のオフライン比較(3チェーン × 9設定) ===
+6点PnP: 成功 inlier=5/6 outlier=['基準_002']
+  loftr_outdoor@0.0: N(A/B/C)=[2265, 1353, 1405] (N≥30: 3/3チェーン)
+  loftr_outdoor@0.2: N(A/B/C)=[2265, 1353, 1405] (N≥30: 3/3チェーン)
+  loftr_outdoor@0.5: N(A/B/C)=[747, 424, 452] (N≥30: 3/3チェーン)
+  loftr_outdoor@0.8: N(A/B/C)=[158, 81, 132] (N≥30: 3/3チェーン)
+  loftr_indoor_new@0.0: N(A/B/C)=[1133, 387, 489] (N≥30: 3/3チェーン)
+  loftr_indoor_new@0.2: N(A/B/C)=[1133, 387, 489] (N≥30: 3/3チェーン)
+  loftr_indoor_new@0.5: N(A/B/C)=[118, 43, 47] (N≥30: 3/3チェーン)
+  loftr_indoor_new@0.8: N(A/B/C)=[2, 1, 1] (N≥30: 0/3チェーン)
+  mast3r: N(A/B/C)=[1741, 1580, 1650] (N≥30: 3/3チェーン)
+LoFTR: 適格(7設定) → 採用 loftr_outdoor@0.2 (minN=1353)
+MASt3R: 適格(N(A/B/C)=[1741, 1580, 1650])
+
+feat-026 M4-2: 檻シーンへの学習ベースマッチャー適用
+criteria: criteria_m4_2.md(locked 2026-08-02) / N_S=20 / N_MIN=30
+シーン: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/point_cloud.ply
+クエリ: /home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m4_cage/data/images/cam05520125.png
+LoFTR 解像度: 1280x720(criteria §3 固定)
+
+=== フェーズ2: LoFTR E2E ===
+--- E2E: loftr_outdoor@0.2 ---
+6点PnP: 成功 inlier=5/6 outlier=['基準_002']
+チェーン A: 初期値=6点PnP解(無摂動)
+  j=0(k=0): マッチ3235 N=2265 inl=1775 RMSE=3.946px
+  j=1..20: RMSE 1.205〜1.268px 準誤マッチ率 37.8〜45.2%
+チェーン B: 初期値=6点PnP解+摂動(実摂動 5.00cm/2.00°)
+  j=0(k=0): マッチ2019 N=1353 inl=721 RMSE=3.981px
+  j=1..20: RMSE 1.203〜1.260px 準誤マッチ率 38.2〜45.9%
+チェーン C: 初期値=6点PnP解+摂動(実摂動 5.00cm/2.00°)
+  j=0(k=0): マッチ1990 N=1405 inl=783 RMSE=4.555px
+  j=1..20: RMSE 1.187〜1.257px 準誤マッチ率 38.1〜49.1%
+§6.1 成立性: 成立(チェーン成立 3/3, サンプル 60/60)
+§5-3 pooled 合意: f_c=1.000(60/60) 第2クラスタ=0.000 RMS半径=1.49mm/0.0617deg
+§6.2 受理: 受理 — 単峰高合意(f_c=1.000≥0.7, 第2=0.000<0.2)
+§6.4 初期解→最終解の差: 1.43cm/1.414° (前提条件 ≤50cm/10.0° → 満足)
+手動6点再投影中央値: 初期解=2.233px 最終解=4.545px(記録のみ)
+
+§6.3 実測 k=0(3/3 反復):
+  (b-1) 生マッチ候補: 1990〜3235(中央値 2019)
+  (b-1) ratio後: 1990〜3235(中央値 2019)
+  (b-1) 変位ゲート後: 1949〜3211(中央値 1991)
+  (b-1) 深度系ゲート後 N: 1353〜2265(中央値 1405)
+  (b-1) RANSAC インライア: 721〜1775(中央値 783)
+  (b-2) 深度NaN/広がり除外(変位通過分母): 12.8〜15.7%
+  (b-2) α除外(変位通過分母): 0.0〜0.0%
+  (b-2) z範囲除外(変位通過分母): 0.0〜0.0%
+  (b-2) 深度分散除外(変位通過分母): 15.0〜16.4%
+  (b-3) 準誤マッチ率: 21.6〜46.7%(中央値 44.3%。M3 参照値 18〜40%)
+  RMSE: 3.946〜4.555px(警告閾値 2.0px。M3 参照値 0.90〜1.24px)
+  vol_ratio: 0.096〜0.212(警告閾値 0.09: 0/3 反復で点灯。記録のみ)
+  depth_range: 1.365〜1.545(警告閾値 1.4: 1/3 反復で点灯。記録のみ)
+  area_ratio: 0.611〜0.833(警告閾値 0.22: 0/3 反復で点灯。記録のみ)
+  (b-4) レンダ有効画素率: 1.000〜1.000
+§6.3 実測 k≥1(60/60 反復):
+  (b-1) 生マッチ候補: 4112〜5158(中央値 5072)
+  (b-1) ratio後: 4112〜5158(中央値 5072)
+  (b-1) 変位ゲート後: 3446〜4670(中央値 4578)
+  (b-1) 深度系ゲート後 N: 2334〜3007(中央値 2957)
+  (b-1) RANSAC インライア: 1187〜1847(中央値 1735)
+  (b-2) 深度NaN/広がり除外(変位通過分母): 16.1〜19.3%
+  (b-2) α除外(変位通過分母): 0.0〜0.0%
+  (b-2) z範囲除外(変位通過分母): 0.0〜0.0%
+  (b-2) 深度分散除外(変位通過分母): 15.9〜17.3%
+  (b-3) 準誤マッチ率: 37.8〜49.1%(中央値 41.4%。M3 参照値 18〜40%)
+  RMSE: 1.187〜1.268px(警告閾値 2.0px。M3 参照値 0.90〜1.24px)
+  vol_ratio: 0.193〜0.276(警告閾値 0.09: 0/60 反復で点灯。記録のみ)
+  depth_range: 1.433〜1.826(警告閾値 1.4: 0/60 反復で点灯。記録のみ)
+  area_ratio: 0.664〜0.854(警告閾値 0.22: 0/60 反復で点灯。記録のみ)
+  (b-4) レンダ有効画素率: 1.000〜1.000
+loftr_outdoor@0.2 判定: Go(成立性=○ 受理=○ 前提条件=○)
+=== M4-2 判定(criteria §6.1) === Go(LoFTR で達成。遷移表: フェーズ3 は実施しない)
+

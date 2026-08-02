@@ -126,7 +126,8 @@ phase4 とは独立した実験環境。LoFTR（kornia 0.8.3 以降）が Python
 |---|---|---|---|
 | MASt3R リポジトリ（dust3r / croco サブモジュール込み） | `~/git/mast3r` | `git clone --recursive https://github.com/naver/mast3r` | CC BY-NC-SA 4.0（非商用研究は許諾。本プロジェクトは大学研究のため使用可） |
 | MASt3R チェックポイント（2.75GB） | `~/data/models/mast3r/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth` | download.europe.naverlabs.com | 同上 + CHECKPOINTS_NOTICE |
-| LoFTR 重み（outdoor、44.2MB） | `~/.cache/torch/hub/checkpoints/loftr_outdoor.ckpt` | kornia が初回実行時に自動ダウンロード | Apache 2.0 |
+| LoFTR 重み outdoor（46,341,978 bytes） | `~/.cache/torch/hub/checkpoints/loftr_outdoor.ckpt` | kornia が初回実行時に自動ダウンロード | Apache 2.0 |
+| LoFTR 重み indoor_new（46,355,053 bytes） | `~/.cache/torch/hub/checkpoints/loftr_indoor_ds_new.ckpt` | 同上（M3b 用に事前取得済み。sha256 は M3b criteria §3.1 に固定） | Apache 2.0 |
 
 ### CUDA 実行環境（phase4 との違い）
 

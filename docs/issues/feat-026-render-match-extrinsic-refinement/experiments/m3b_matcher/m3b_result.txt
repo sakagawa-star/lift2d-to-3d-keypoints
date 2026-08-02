@@ -1,0 +1,264 @@
+feat-026 M3b: 学習ベースマッチャー(LoFTR/MASt3R)の病院シーン評価
+criteria: criteria.md(locked 2026-08-02) / K_MAX=5 / N_MIN=30
+入力: PLY=/home/sakagawa/data/PLY/HandaiHospital-20260418-01/point_cloud/iteration_100/point_cloud.ply
+      TOML=/home/sakagawa/git/pose2sim/Pose2Sim/20260418_osaka-hosp1/calibration/Config_scene.toml
+バージョン: OpenCV 4.13.0 / NumPy 2.2.6
+
+=== フェーズ0: 疎通 ===
+TOML sha256: df3b52184f5b489e99694a98814c2bd1acd3b2edd0370dc36930f4387b4bf0cc → 一致
+loftr_outdoor sha256: 21f5bec5968178e8bc8b7633441836fe5de4f47d861dd2cd7dc38e271b0479ec → 一致
+loftr_indoor_new sha256: be9ff88b323ec27889114719f668ae41aff7034b56a4c4acbd46b8b180b87ed3 → 一致
+mast3r ckpt サイズ: 2754910614 → 一致
+(a) SIFT 再現(M3 実測 P0 k=0 との一致):
+  cam05520126: マッチ300(期待300) N=234(期待234) → 一致
+  cam05520129: マッチ446(期待446) N=340(期待340) → 一致
+  cam41520554: マッチ291(期待291) N=244(期待244) → 一致
+  cam41520556: マッチ380(期待380) N=296(期待296) → 一致
+  cam41520557: マッチ258(期待258) N=231(期待231) → 一致
+(b) loftr_outdoor: full で OOM → LoFTR 全設定・全カメラを 1280x720 に統一
+(b) loftr_outdoor: 6937 マッチ, 範囲内率 1.000 → OK
+(c) loftr_outdoor: round-trip 最大 0.0000px(基準 ≤0.5) → OK / 変換メタ {"matcher": "loftr_outdoor", "resolution": "1280x720", "scale": 0.6666666666666666, "roundtrip_max_px": 2.2737367544323206e-13, "in_range_rate": 1.0}
+(b) loftr_indoor_new: 379 マッチ, 範囲内率 1.000 → OK
+(c) loftr_indoor_new: round-trip 最大 0.0000px(基準 ≤0.5) → OK / 変換メタ {"matcher": "loftr_indoor_new", "resolution": "1280x720", "scale": 0.6666666666666666, "roundtrip_max_px": 2.2737367544323206e-13, "in_range_rate": 1.0}
+(b) mast3r: 2138 マッチ, 範囲内率 1.000 → OK
+(c) mast3r: round-trip 最大 0.0000px(基準 ≤0.5) → OK / 変換メタ {"matcher": "mast3r", "resolution": "512x288", "true_shape": [288, 512], "resized_precrop": [288, 512], "offsets": [0, 0], "scale_xy": [0.26666666666666666, 0.26666666666666666], "roundtrip_max_px": 1.1102230246251565e-16, "in_range_rate": 1.0}
+(d) 再現性(同一入力2回目との差。記録のみ):
+  loftr_outdoor: マッチ数同一(6937) 座標最大差 0.0000px
+  loftr_indoor_new: マッチ数同一(379) 座標最大差 0.0000px
+  mast3r: マッチ数同一(2138) 座標最大差 0.0000px
+フェーズ0 判定: 成立 / LoFTR 解像度=1280x720
+
+feat-026 M3b: 学習ベースマッチャー(LoFTR/MASt3R)の病院シーン評価
+criteria: criteria.md(locked 2026-08-02) / K_MAX=5 / N_MIN=30
+入力: PLY=/home/sakagawa/data/PLY/HandaiHospital-20260418-01/point_cloud/iteration_100/point_cloud.ply
+      TOML=/home/sakagawa/git/pose2sim/Pose2Sim/20260418_osaka-hosp1/calibration/Config_scene.toml
+バージョン: OpenCV 4.13.0 / NumPy 2.2.6
+
+=== フェーズ1: マッチング段のオフライン比較 ===
+  loftr_outdoor@0.0: N=[6234, 7943, 5713, 6140, 5432] (N≥30: 5/5カメラ)
+  loftr_outdoor@0.2: N=[6234, 7943, 5713, 6140, 5432] (N≥30: 5/5カメラ)
+  loftr_outdoor@0.5: N=[4067, 5751, 3546, 4285, 3829] (N≥30: 5/5カメラ)
+  loftr_outdoor@0.8: N=[2402, 3448, 1612, 2286, 2434] (N≥30: 5/5カメラ)
+  loftr_indoor_new@0.0: N=[330, 5193, 4735, 5116, 2145] (N≥30: 5/5カメラ)
+  loftr_indoor_new@0.2: N=[330, 5193, 4735, 5116, 2145] (N≥30: 5/5カメラ)
+  loftr_indoor_new@0.5: N=[4, 1311, 1512, 1828, 438] (N≥30: 4/5カメラ)
+  loftr_indoor_new@0.8: N=[0, 71, 242, 290, 4] (N≥30: 3/5カメラ)
+  mast3r: N=[1971, 2191, 2095, 2196, 2185] (N≥30: 5/5カメラ)
+LoFTR: 進出(8設定が適格) → 採用 loftr_outdoor@0.2 (選択規則 §5: minN=5432)
+MASt3R: 進出(N≥30 が 5/5)
+フェーズ1 判定: 進出マッチャー ['loftr', 'mast3r']
+
+feat-026 M3b: 学習ベースマッチャー(LoFTR/MASt3R)の病院シーン評価
+criteria: criteria.md(locked 2026-08-02) / K_MAX=5 / N_MIN=30
+入力: PLY=/home/sakagawa/data/PLY/HandaiHospital-20260418-01/point_cloud/iteration_100/point_cloud.ply
+      TOML=/home/sakagawa/git/pose2sim/Pose2Sim/20260418_osaka-hosp1/calibration/Config_scene.toml
+バージョン: OpenCV 4.13.0 / NumPy 2.2.6
+
+=== フェーズ2: E2E(P0/P1/P2) ===
+--- マッチャー: loftr_outdoor@0.2 ---
+=== cam05520126 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ6937 N=6234 inl=5813 RMSE=1.976px | 更新量 10.88mm/0.1475deg
+  k=1: OK | マッチ7410 N=6407 inl=4499 RMSE=1.119px | 更新量 1.77mm/0.0175deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.972cm / 0.1348deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ5357 N=4907 inl=4526 RMSE=2.867px | 更新量 39.84mm/2.0418deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ7356 N=6370 inl=4534 RMSE=1.106px | 更新量 1.43mm/0.0364deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.245cm / 0.1715deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ5714 N=5168 inl=4678 RMSE=2.929px | 更新量 39.33mm/1.8011deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ7237 N=6269 inl=4417 RMSE=1.102px | 更新量 2.84mm/0.0664deg
+  k=2: OK | マッチ7346 N=6386 inl=4768 RMSE=1.115px | 更新量 2.36mm/0.0331deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.092cm / 0.1612deg
+  同一解判定: 最大ペア間 0.348cm/0.0465deg → 同一解
+  一致性判定: P0差 0.972cm/0.1348deg vs 閾値 2.55cm/0.35deg → 一致
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+=== cam05520129 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ8463 N=7943 inl=7530 RMSE=1.867px | 更新量 3.72mm/0.0785deg
+  k=1: OK | マッチ8474 N=7650 inl=4952 RMSE=1.178px | 更新量 3.48mm/0.0767deg
+  k=2: OK | マッチ8469 N=7643 inl=4759 RMSE=1.143px | 更新量 3.22mm/0.0698deg
+  k=3: OK | マッチ8363 N=7493 inl=5127 RMSE=1.180px | 更新量 2.13mm/0.0551deg
+  k=4: OK | マッチ8441 N=7602 inl=4946 RMSE=1.121px | 更新量 1.85mm/0.0178deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.888cm / 0.1598deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ6648 N=6224 inl=5471 RMSE=3.244px | 更新量 47.63mm/2.0711deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ8493 N=7668 inl=5043 RMSE=1.198px | 更新量 3.08mm/0.0634deg
+  k=2: OK | マッチ8491 N=7646 inl=4738 RMSE=1.128px | 更新量 4.58mm/0.0816deg
+  k=3: OK | マッチ8350 N=7491 inl=4992 RMSE=1.123px | 更新量 0.97mm/0.0328deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.887cm / 0.1598deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ6781 N=6334 inl=5551 RMSE=2.978px | 更新量 42.07mm/1.8429deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ8443 N=7596 inl=4799 RMSE=1.125px | 更新量 3.09mm/0.0470deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.969cm / 0.1753deg
+  同一解判定: 最大ペア間 0.277cm/0.0436deg → 同一解
+  一致性判定: P0差 0.888cm/0.1598deg vs 閾値 2.29cm/0.46deg → 一致
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+=== cam41520554 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ6239 N=5713 inl=5386 RMSE=2.568px | 更新量 7.52mm/0.1710deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ6724 N=5898 inl=3224 RMSE=1.264px | 更新量 3.02mm/0.0083deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.986cm / 0.1692deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ5469 N=4950 inl=4465 RMSE=3.211px | 更新量 44.60mm/1.9243deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ6647 N=5826 inl=3031 RMSE=1.285px | 更新量 0.71mm/0.0223deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.937cm / 0.2088deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ5286 N=4840 inl=4389 RMSE=3.076px | 更新量 44.22mm/2.1747deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ6798 N=5980 inl=3177 RMSE=1.266px | 更新量 3.21mm/0.0535deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ6736 N=5908 inl=3166 RMSE=1.225px | 更新量 4.38mm/0.0434deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.362cm / 0.1971deg
+  同一解判定: 最大ペア間 0.506cm/0.0444deg → 同一解
+  一致性判定: P0差 0.986cm/0.1692deg vs 閾値 1.84cm/0.39deg → 一致
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+=== cam41520556 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ6531 N=6140 inl=5885 RMSE=1.644px | 更新量 4.60mm/0.0946deg | 警告: vol_ratio<0.09
+  k=1: OK | マッチ6478 N=5857 inl=4005 RMSE=1.121px | 更新量 5.90mm/0.1160deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ6435 N=5826 inl=4050 RMSE=1.119px | 更新量 3.60mm/0.0695deg | 警告: vol_ratio<0.09
+  k=3: OK | マッチ6539 N=5935 inl=4120 RMSE=1.115px | 更新量 2.39mm/0.0727deg | 警告: vol_ratio<0.09
+  k=4: OK | マッチ6425 N=5812 inl=4114 RMSE=1.118px | 更新量 2.81mm/0.0663deg | 警告: vol_ratio<0.09
+  最終解と基準ポーズの差: 0.892cm / 0.1916deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ5137 N=4819 inl=4460 RMSE=2.887px | 更新量 48.88mm/1.9484deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ6453 N=5847 inl=4126 RMSE=1.116px | 更新量 0.86mm/0.0202deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.753cm / 0.1536deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ4971 N=4627 inl=4259 RMSE=2.913px | 更新量 43.57mm/2.0625deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ6470 N=5864 inl=4201 RMSE=1.135px | 更新量 4.89mm/0.1122deg | 警告: vol_ratio<0.09
+  k=2: OK | マッチ6444 N=5828 inl=4091 RMSE=1.118px | 更新量 1.42mm/0.0287deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.954cm / 0.1906deg
+  同一解判定: P0/P1/P2 に不成立系列があるため不合格
+  一致性判定: P0差 0.892cm/0.1916deg vs 閾値 2.05cm/0.44deg → 不一致
+  カメラ判定: 成立=False 同一解=False 一致=False → FAIL
+=== cam41520557 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ5752 N=5432 inl=4824 RMSE=1.693px | 更新量 2.89mm/0.0479deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.289cm / 0.0479deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ4177 N=3968 inl=3344 RMSE=2.874px | 更新量 49.85mm/1.9461deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ5846 N=5261 inl=3912 RMSE=1.159px | 更新量 2.87mm/0.0538deg
+  k=2: OK | マッチ5859 N=5276 inl=3700 RMSE=1.178px | 更新量 3.47mm/0.0622deg
+  k=3: OK | マッチ5802 N=5234 inl=3529 RMSE=1.191px | 更新量 3.27mm/0.0543deg
+  k=4: OK | マッチ5754 N=5173 inl=3659 RMSE=1.176px | 更新量 2.29mm/0.0282deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.691cm / 0.1122deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ4155 N=3956 inl=3328 RMSE=3.149px | 更新量 53.05mm/1.9231deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ5778 N=5206 inl=3560 RMSE=1.131px | 更新量 3.13mm/0.0486deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.463cm / 0.0852deg
+  同一解判定: 最大ペア間 0.434cm/0.0756deg → 同一解
+  一致性判定: P0差 0.289cm/0.0479deg vs 閾値 2.40cm/0.41deg → 一致
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+loftr_outdoor@0.2 判定: PASS 4/5
+--- マッチャー: mast3r ---
+=== cam05520126 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ2138 N=1971 inl=1929 RMSE=1.991px | 更新量 10.42mm/0.1702deg
+  k=1: OK | マッチ2117 N=1954 inl=1779 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.042cm / 0.1702deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ2041 N=1890 inl=1746 RMSE=2.404px | 更新量 40.34mm/2.0557deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ2125 N=1957 inl=1737 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.199cm / 0.1740deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ2106 N=1939 inl=1809 RMSE=2.383px | 更新量 38.33mm/1.7883deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ2129 N=1956 inl=1750 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.468cm / 0.2280deg
+  同一解判定: 最大ペア間 0.675cm/0.1063deg → 不一致
+  一致性判定: P0差 1.042cm/0.1702deg vs 閾値 2.55cm/0.35deg → 一致
+  カメラ判定: 成立=True 同一解=False 一致=True → FAIL
+=== cam05520129 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ2274 N=2191 inl=2189 RMSE=1.849px | 更新量 3.34mm/0.0752deg
+  k=1: OK | マッチ2275 N=2195 inl=1885 RMSE=0.188px | 更新量 0.72mm/0.0156deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.334cm / 0.0826deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ2186 N=2100 inl=2041 RMSE=2.175px | 更新量 43.18mm/2.0984deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ2272 N=2189 inl=1757 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.711cm / 0.1700deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ2295 N=2213 inl=2170 RMSE=2.390px | 更新量 46.12mm/1.9094deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ2273 N=2184 inl=1733 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.544cm / 0.1385deg
+  同一解判定: 最大ペア間 0.733cm/0.1970deg → 不一致
+  一致性判定: P0差 0.334cm/0.0826deg vs 閾値 2.29cm/0.46deg → 一致
+  カメラ判定: 成立=True 同一解=False 一致=True → FAIL
+=== cam41520554 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ2199 N=2095 inl=1905 RMSE=2.213px | 更新量 10.97mm/0.1744deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ2190 N=2077 inl=1574 RMSE=0.247px | 更新量 0.13mm/0.0041deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 1.108cm / 0.1782deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ2117 N=2018 inl=1937 RMSE=2.541px | 更新量 46.94mm/1.9460deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ2189 N=2082 inl=1221 RMSE=0.681px | 更新量 1.45mm/0.0311deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.834cm / 0.1724deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ2149 N=2054 inl=2002 RMSE=2.551px | 更新量 44.46mm/2.1790deg | 警告: RMSE>2.0px,vol_ratio<0.09
+  k=1: OK | マッチ2189 N=2085 inl=1338 RMSE=0.000px | 更新量 0.00mm/0.0000deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.890cm / 0.1892deg
+  同一解判定: 最大ペア間 0.416cm/0.0469deg → 同一解
+  一致性判定: P0差 1.108cm/0.1782deg vs 閾値 1.84cm/0.39deg → 一致
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+=== cam41520556 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ2264 N=2196 inl=2195 RMSE=0.869px | 更新量 2.30mm/0.0438deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.230cm / 0.0438deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ2197 N=2136 inl=2135 RMSE=1.949px | 更新量 44.61mm/2.0144deg | 警告: vol_ratio<0.09
+  k=1: OK | マッチ2263 N=2194 inl=2174 RMSE=0.000px | 更新量 0.00mm/0.0000deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.738cm / 0.1658deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ2248 N=2181 inl=2168 RMSE=1.955px | 更新量 47.75mm/2.0289deg | 警告: vol_ratio<0.09
+  k=1: OK | マッチ2260 N=2192 inl=2143 RMSE=0.000px | 更新量 0.00mm/0.0000deg | 警告: vol_ratio<0.09
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.502cm / 0.1151deg
+  同一解判定: 最大ペア間 0.550cm/0.1298deg → 不一致
+  一致性判定: P0差 0.230cm/0.0438deg vs 閾値 2.05cm/0.44deg → 一致
+  カメラ判定: 成立=True 同一解=False 一致=True → FAIL
+=== cam41520557 ===
+[P0] 摂動なし(基準ポーズ)
+  k=0: OK | マッチ2259 N=2185 inl=2182 RMSE=1.213px | 更新量 3.32mm/0.0539deg
+  k=1: OK | マッチ2262 N=2186 inl=2051 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.332cm / 0.0539deg
+[P1] 摂動 5cm/2deg seed=11
+  k=0: OK | マッチ2178 N=2120 inl=1985 RMSE=2.028px | 更新量 52.67mm/1.9337deg | 警告: RMSE>2.0px
+  k=1: OK | マッチ2262 N=2189 inl=1984 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.427cm / 0.0847deg
+[P2] 摂動 5cm/2deg seed=12
+  k=0: OK | マッチ2214 N=2152 inl=2006 RMSE=1.894px | 更新量 51.72mm/2.0176deg
+  k=1: OK | マッチ2265 N=2185 inl=2033 RMSE=0.000px | 更新量 0.00mm/0.0000deg
+  → 収束(更新量 < 0.05deg / 5mm)
+  最終解と基準ポーズの差: 0.353cm / 0.0765deg
+  同一解判定: 最大ペア間 0.323cm/0.0686deg → 同一解
+  一致性判定: P0差 0.332cm/0.0539deg vs 閾値 2.40cm/0.41deg → 一致
+  カメラ判定: 成立=True 同一解=True 一致=True → PASS
+mast3r 判定: PASS 2/5
+=== M3b 判定(criteria §6.2) === Go
+

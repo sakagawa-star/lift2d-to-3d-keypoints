@@ -1,0 +1,13 @@
+**高**
+- OOM fallback が criteria §3.1/§5 と一致していません。`matcher_cli.py` は MASt3R/LoFTR どちらの CUDA OOM でも exit 42 を返しますが、`phase0` は発生元 matcher を見ずに LoFTR fallback として扱います。また `phase1` で初めて LoFTR fallback になった場合、criteria §5-0(c) の fallback 逆写像検証が済まないまま測定に進みます。さらに `phase2` は `MatcherOOM` を捕捉しないため、LoFTR full が P1/P2 などで OOM すると統一 fallback ではなくクラッシュします。  
+  根拠: [matcher_cli.py:160](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/matcher_cli.py:160), [m3b_run.py:323](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:323), [m3b_run.py:410](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:410), [m3b_run.py:526](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:526)。  
+  修正提案: OOM 処理を中央化し、LoFTR OOM のみ global `loftr_resolution=1280x720` に切替。切替後は fallback 逆写像検証を必ず記録し、既存 LoFTR phase1 選定結果を無効化して fallback 解像度で再取得する。MASt3R OOM は LoFTR fallback に混ぜず、MASt3R 側の明示的不成立として記録する。
+
+- 試行回数管理が script 側で閉じていません。criteria §7 は各フェーズ各 matcher 1回を要求していますが、`--phase 0/1/2` は既存 state を上書きし、結果は追記、phase2 history は上書きできます。GPU matcher の非決定性を記録対象にしている実験なので、再実行で phase1 の採用設定や phase2 の Go/No-Go が動く抜け穴になります。  
+  根拠: [criteria.md:104](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/criteria.md:104), [m3b_run.py:620](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:620), [m3b_run.py:630](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:630), [m3b_run.py:643](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:643), [m3b_run.py:650](/home/sakagawa/git/lift2d-to-3d-keypoints/docs/issues/feat-026-render-match-extrinsic-refinement/experiments/m3b_matcher/m3b_run.py:650)。  
+  修正提案: state に `phase0_done/phase1_done/phase2_done` と run id/hash を保存し、既実行 phase は原則 abort。実装欠陥による再実行だけ `--rerun-defect-id` のような明示引数とログ記録を必須にし、旧結果を上書きしない。
+
+**中/低**
+- 致命的な追加指摘なし。
+
+補足: `python3 -m py_compile` と、各 uv 環境での `py_compile` は通りました。Stage 2/4/5/6 の通常経路、LoFTR 閾値選択、M4-1 型の `depth_ok→α→z→分散` の逐次分類には、今回の観点で致命的な逸脱は見つけていません。
