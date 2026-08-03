@@ -35,3 +35,5 @@
 | bug-003 | 不具合 | estimate_camera_params.py 通常モードの入力・収束ガード不足 | Closed |
 | bug-004 | 不具合 | estimate_camera_params.py Codex コードレビュー（方式2）と指摘対応 | Closed |
 | feat-026 | 機能追加 | レンダリング＋自動マッチングによる外部パラメータ自動リファイン | Closed |
+| update-001 | ドキュメント更新 | 開発ドキュメントテンプレート改訂の取り込み（update-XXXフロー導入） | Closed |
+| update-002 | ドキュメント更新 | 「予測→実行→照合」プロトコルの開発ルール組み込み | Open |

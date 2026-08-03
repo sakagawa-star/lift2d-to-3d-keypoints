@@ -210,23 +210,51 @@ image_height: 540
 
 既存機能の不具合を修正する場合、以下のフローを**厳守**する。
 
-1. **案件作成** → `docs/issues/bug-{number}-{slug}/` フォルダを作成し、`docs/BACKLOG.md` に追加する。`README.md` に不具合の概要と再現手順を記録する
+1. **案件作成** → `docs/issues/bug-{number}-{slug}/` フォルダを作成し、`docs/BACKLOG.md` に追加する。案件フォルダの `docs/issues/bug-{number}-{slug}/README.md` に不具合の概要と再現手順を記録する（ルートの `README.md` ではない）
 2. **調査・修正計画** → `docs/BUGFIX_STANDARD.md` に従い、既存コードを調査する。修正計画を `docs/issues/{案件フォルダ}/investigation.md` に記録する。**この時点でコードを編集してはならない**
-3. **ドキュメント保存** → investigation.md の保存を確認する。**保存が完了するまで実装に進んではならない**
+3. **ドキュメント保存** → investigation.md の保存を確認する。調査の結果 `requirements.md` / `design.md` の修正が必要になった場合は、それらも併せて保存する。**保存が完了するまで実装に進んではならない**
 4. **レビュー（Codex → 人）** → 保存されたドキュメントを **Codex** でレビューする。実行方法は後述の「Codexによるレビューの実行方法」を参照。**まず Codex の再帰レビュー（修正→再レビュー）を重要度「高・中」がゼロに収束するまで回し、その後に人（ユーザー）がレビューする**（収束前に人レビューはしない）。レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
 5. **修正（必要な場合）** → レビューで問題があれば、再調査してドキュメントを更新する。**ステップ2〜4を問題がなくなるまで繰り返す**
 6. **実装** → 承認された修正計画に沿ってコードを修正する。実装は後述の「実装の実行方法（Sonnetサブエージェント）」に従い、Sonnet サブエージェントに委任する。計画にない変更が必要になった場合は中断して報告する
 7. **手動テスト** → ユーザーがテストする。問題があれば `docs/BUGFIX_STANDARD.md` に従って investigation.md にイテレーション番号を付けて追記し、**ユーザーの承認を得た上で、ステップ2〜7を繰り返す**（コード修正はステップ6で行う。ステップ7で直接コードを編集してはならない）
 8. **完了** → `docs/BACKLOG.md` のステータスを Closed に更新する。`docs/CHANGELOG.md` に完了内容を記録する。ファイルの追加・削除があった場合は `CLAUDE.md` のディレクトリ構成を最新に更新する。`README.md` に記載済みの内容（コマンド、CLIオプション、入力/出力形式、既定値、実行環境・依存条件）に変更があった場合は `README.md` を最新に更新する
 
+### ドキュメント更新フロー（update-XXX 案件）
+
+開発プロセスを定める運用ドキュメント（`CLAUDE.md`、`docs/` 直下の基準書・BACKLOG・CHANGELOG、`.gitignore` 等）の改訂は **update-XXX 案件**として扱い、以下のフローを**厳守**する。典型例:
+
+- 本プロジェクトのコピー元テンプレートリポジトリ（開発ドキュメントテンプレート）の改訂の取り込み
+- ドキュメント間の二重管理・不整合の解消、運用ルールの新設・変更
+
+**ソースコード・テストコードの変更は含まない。** 作業中にコード変更が必要と判明した場合は中断し、feat/bug 案件として起票し直す。個別機能のドキュメント（案件フォルダ内の requirements.md 等）の修正は元案件側で扱い、update 案件にはしない。
+
+要求仕様書・機能設計書は作らず、README.md（調査）と design.md（反映設計）の2点で代替する。
+
+1. **案件作成** → `docs/issues/update-{number}-{slug}/` フォルダを作成し、`docs/BACKLOG.md` に追加する。slug は変更の目的がわかる名前にする（例: `adopt-dev-template`）
+2. **調査** → 現状と変更理由を調査し、案件フォルダの `README.md` に記録する。テンプレート取り込みの場合は反映元パス・コミットID・差分の全量と、取り込む/取り込まない の選別と理由を書く。**この時点で反映先を編集してはならない**
+3. **設計・保存** → 変更対象ファイルごとに「どのセクションを・どう変えるか」を `design.md` に書いてファイル保存する。自己完結（/clear 後でも design.md だけで反映作業ができる）・曖昧表現禁止。全置換に後処理が伴う場合は、変更方式の一覧・該当セクション・実施手順のすべてに明記する。完了処理（BACKLOG・CHANGELOG の更新）も設計に含める。**保存が完了するまで反映に進んではならない**
+4. **レビュー（Codex → 人）** → 「Codexによるレビューの実行方法」に従う（バックグラウンド実行、`-o` + full.log 分離、`resume` による逐次再レビュー、重要度「高・中」ゼロ収束後に人レビュー）。レビュー対象は `README.md` と `design.md`。レビュー観点は次の3点を明示して依頼する:
+   1. 反映計画の自己完結性（design.md だけで作業ができるか）
+   2. 情報の喪失（削除・置換対象に、他所に存在しない情報が含まれていないか）
+   3. 変更後のドキュメント間整合性（参照切れ、矛盾、案件の漏れ・重複）
+5. **反映** → design.md に厳密に従って編集する。実装は Claude Code 本体が行ってよい（転記・削除中心で Sonnet 委任のオーバーヘッドに見合わないため。分量が大きい機械的変更では委任も可。どちらにするかは design.md に明記する）。設計にない変更が必要になったら中断してステップ2に戻る。反映後 `git diff` で「意図した変更のみか・保持対象が変わっていないか」を検証する
+6. **完了** → `docs/BACKLOG.md` のステータスを Closed に更新する。`docs/CHANGELOG.md` に完了内容を記録し、案件 README のステータスを Closed に更新する。ファイルの追加・削除があった場合は `CLAUDE.md` のディレクトリ構成を最新に更新する
+7. **テスト** → コード変更がないためテスト（自動・手動とも）は不要（不要であることを design.md に明記する）
+
+#### 運用メモ
+
+- 汎用性のある改善は、完了後にコピー元の開発ドキュメントテンプレートリポジトリへの還元（テンプレート側の update-XXX 案件）を検討する
+- ルートの `.gitignore` がグローバル gitignore（`~/.gitignore_global`）の影響で未追跡になる環境では、コミットに含める際に `git add -f` が必要
+
 ### ドキュメント作成ルール
 
-- **実装前に必ずドキュメントを作成し、案件フォルダにファイル保存すること**
+- **実装（反映）前に必ず案件種別に応じたドキュメントを作成し、案件フォルダにファイル保存すること**
+  - feat: 要求仕様書（`requirements.md`、`docs/REQUIREMENTS_STANDARD.md` 準拠）と機能設計書（`design.md`、`docs/DESIGN_STANDARD.md` 準拠）
+  - bug: 修正計画（`investigation.md`、`docs/BUGFIX_STANDARD.md` 準拠）。要求仕様書・機能設計書の変更が必要な場合はその変更案も併せて保存する
+  - update: 調査記録（`README.md`）と反映設計書（`design.md`）。詳細は「ドキュメント更新フロー（update-XXX 案件）」に従う
 - ドキュメントが保存されていない場合は、**実装を中止**する
-- 機能追加時: 要求仕様書（`docs/REQUIREMENTS_STANDARD.md` 準拠）と機能設計書（`docs/DESIGN_STANDARD.md` 準拠）を作成する
-- 不具合修正時: `docs/BUGFIX_STANDARD.md` の基準に従い、修正計画を `investigation.md` に記録する
 - レビュー実行時は `docs/REVIEW_CRITERIA.md` の基準に従うこと
-- ドキュメントは `docs/issues/{案件フォルダ}/` に置く（`requirements.md`, `design.md`, `investigation.md`）
+- ドキュメントは `docs/issues/{案件フォルダ}/` に置く。ファイル名は上記の案件種別ごとの必須ドキュメント定義に従う
 - **/clear 後でも実装がスムーズにできるよう、必要な情報を全て記述する**
 - 暗黙知に頼らず、**自己完結したドキュメント**にする（前の会話コンテキストがなくても実装できること）
 - ライブラリの追加・変更・削除を行った場合は `docs/TECH_STACK.md` も更新すること
@@ -236,13 +264,15 @@ image_height: 540
 
 ```
 docs/issues/
-└── {type}-{number}-{slug}/    # 例: bug-001-xxx, feat-001-yyy
+└── {type}-{number}-{slug}/    # 例: bug-001-xxx, feat-001-yyy, update-001-zzz
     ├── README.md              # 概要、ステータス、再現手順
     ├── requirements.md        # 要求仕様書（機能追加時、REQUIREMENTS_STANDARD.md 準拠）
     ├── design.md              # 機能設計書（機能追加時、DESIGN_STANDARD.md 準拠）
     ├── investigation.md       # 不具合の調査・修正計画（BUGFIX_STANDARD.md 準拠）
     └── reviews/               # Codexレビューの結果（codex-NN.result.md のみ git 管理。full.log は gitignore）
 ```
+
+update 案件は requirements.md / investigation.md を持たず、README.md（調査）・design.md（反映設計）・reviews/ で構成される。
 
 ### 命名規則
 
@@ -251,7 +281,7 @@ docs/issues/
 
 ### Codexによるレビューの実行方法
 
-機能追加・不具合修正フローのステップ4（レビュー）では、Claude Code 自身が `codex exec` コマンドを実行して Codex にレビューさせる。Subagent は使わない。**Codex は逐次（前回セッションを `resume` で継続）で回し、重要度「高・中」がゼロに収束してから人レビューに進む**。並列にはしない（再レビューの収束確認＝「前回指摘が直ったか」の判定に前回文脈の引き継ぎが必要なため）。
+機能追加・不具合修正・ドキュメント更新フローのステップ4（レビュー）では、Claude Code 自身が `codex exec` コマンドを実行して Codex にレビューさせる。Subagent は使わない。**Codex は逐次（前回セッションを `resume` で継続）で回し、重要度「高・中」がゼロに収束してから人レビューに進む**。並列にはしない（再レビューの収束確認＝「前回指摘が直ったか」の判定に前回文脈の引き継ぎが必要なため。初回の発見網羅性を上げたい大規模案件でのみ「初回だけ多観点並列→以降逐次」を検討）。
 
 使用するモデルは `~/.codex/config.toml` のデフォルト設定に従う。本ファイルのコマンドにはモデル指定（`-m`）を書かない。モデルを切り替えたい場合は `~/.codex/config.toml` を編集する（全プロジェクト共通で反映される）。
 
@@ -281,7 +311,16 @@ codex exec -o docs/issues/{案件フォルダ}/reviews/codex-01.result.md \
 ```bash
 mkdir -p docs/issues/{案件フォルダ}/reviews
 codex exec -o docs/issues/{案件フォルダ}/reviews/codex-01.result.md \
-  "docs/REVIEW_CRITERIA.md および docs/BUGFIX_STANDARD.md の基準に従い、以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/investigation.md 。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。" \
+  "docs/REVIEW_CRITERIA.md および docs/BUGFIX_STANDARD.md の基準に従い、以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/investigation.md 。requirements.md / design.md を変更した場合はそれらもレビュー対象に含めること。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。" \
+  > docs/issues/{案件フォルダ}/reviews/codex-01.full.log 2>&1
+```
+
+#### 初回レビュー（ドキュメント更新の場合）
+
+```bash
+mkdir -p docs/issues/{案件フォルダ}/reviews
+codex exec -o docs/issues/{案件フォルダ}/reviews/codex-01.result.md \
+  "以下のドキュメントをレビューせよ: docs/issues/{案件フォルダ}/README.md docs/issues/{案件フォルダ}/design.md 。レビュー観点は次の3点: (1) 反映計画の自己完結性（design.md だけで作業ができるか） (2) 情報の喪失（削除・置換対象に、他所に存在しない情報が含まれていないか） (3) 変更後のドキュメント間整合性（参照切れ、矛盾、案件の漏れ・重複）。瑣末な点へのクソリプはしないで、致命的な点のみ指摘して。発見した問題を重要度(高/中/低)で分類し、修正提案とともに報告すること。" \
   > docs/issues/{案件フォルダ}/reviews/codex-01.full.log 2>&1
 ```
 
@@ -307,7 +346,7 @@ codex exec resume {SESSION_ID} -o docs/issues/{案件フォルダ}/reviews/codex
 
 #### サブエージェントへの指示に必ず含めること
 
-1. **必読ドキュメントと読む順序**: CLAUDE.md → 案件ドキュメント（機能追加は `requirements.md` と `design.md`、不具合修正は `investigation.md`）→ 変更対象コード → 参考にする既存テスト
+1. **必読ドキュメントと読む順序**: CLAUDE.md → 案件ドキュメント（機能追加は `requirements.md` と `design.md`、不具合修正は `investigation.md` と、変更した場合は関連する `requirements.md` / `design.md` も必読）→ 変更対象コード → 参考にする既存テスト
 2. **厳密準拠の指示**: 設計書・修正計画に厳密に従うこと。書かれていない独自判断・改善・リファクタは一切禁止
 3. **想定外事象の扱い**: 想定外の事象（設計書どおりに実装できない、ドキュメントと実コードの矛盾、テストが通らない等）が発生したら、**その場で回避策を実装せず直ちに中断**し、何が起きたか・どこまで完了したかを報告して終了すること。報告を受けたら「調査・計画 → requirements.md / design.md（または investigation.md）の修正」のステップに**必ず戻る**（レビューを経てから実装を再開する）
 4. **検証まで実施**: `uv run pytest -v` の全件実行、`tests/results/{type}-{number}_test_result.txt` への出力保存、ドキュメントに定義された動作確認（実データ実行等）

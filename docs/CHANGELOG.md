@@ -2,6 +2,16 @@
 
 ## リリース履歴
 
+### 2026-08-03
+
+- **update-001**: 開発ドキュメントテンプレート改訂の取り込み（update-XXXフロー導入）
+  - CLAUDE.md に「ドキュメント更新フロー（update-XXX 案件）」を新設（README.md 調査 + design.md 反映設計の2点構成、Codex 3観点レビュー、テスト不要）。ドキュメント作成ルール・案件ディレクトリ構成・Codex レビュー節を案件種別 update に対応
+  - bug フローの明確化（記録先は案件フォルダの README.md、requirements/design 変更時の保存・レビュー対象化）
+  - BUGFIX_STANDARD.md: エラーメッセージ（完全なトレースバック）・修正コード（前後）の記録を必須項目に追加、ステップ4〜5 を Codex 再帰レビュー運用に整合
+  - REVIEW_CRITERIA.md: テンプレート版で全置換（観点の汎用化、ドキュメントレビューの重要度分類 1.10 を新設）
+  - .gitignore: `.claude/settings.local.json` と `.claude/handovers/` を ignore に追加し、追跡済み分（settings.local.json 1件 + handovers 14件）を追跡解除（ワークツリー・git 履歴には残存）
+  - 反映元: DEV_TEMPLATE/template コミット 715db11。取り込み選別・Codex レビューは `docs/issues/update-001-adopt-dev-template/`
+
 ### 2026-08-02
 
 - **feat-026**: レンダリング＋自動マッチングによる外部パラメータ自動リファイン

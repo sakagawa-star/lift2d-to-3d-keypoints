@@ -47,3 +47,7 @@ docs/issues/*/reviews/*.full.log
 
 # 実験用データディレクトリ（PLY・画像・CSV・TOML等の実測データ）
 docs/issues/*/experiments/*/data/
+
+# Claude Code のローカル設定・引き継ぎノート
+.claude/settings.local.json
+.claude/handovers/
