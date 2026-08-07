@@ -189,7 +189,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 
 - **CUDA GPU 必須**（render.py / render_keypoints.py）。gsplat の CUDA 拡張が初回実行時に JIT コンパイルされるため、環境変数 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` を必ず付ける**（理由の詳細は CLAUDE.md 参照）
 - `camera_pose.py` / `fps_camera_pose.py` は Blender 内スクリプト（`blender -b ... --python ...` で実行。fps_camera_pose.py は Blender 4.5.5）
-- `npz_to_c3d.py` / `filter_c3d.py` は Blender・GPU 不要
+- `npz_to_c3d.py` / `filter_c3d.py` / `filter_npz.py` は Blender・GPU 不要
 - データファイル（PLY・ポーズJSON・C3D・.blend）は `phase4/data/` に置く（git管理外）
 
 ### スクリプト一覧
@@ -200,6 +200,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `fps_camera_pose.py` | FPS頭部追従カメラのポーズ書き出し（ヘッドレスでも向きを計算） |
 | `npz_to_c3d.py` | リフトアップ済み3DキーポイントNPZ → C3D 変換（Blender取り込み対応） |
 | `filter_c3d.py` | C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相） |
+| `filter_npz.py` | NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要） |
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
@@ -257,6 +258,21 @@ uv run python filter_c3d.py data/session001_world_22pt.c3d
 | `--output` | `<入力>_filtered.c3d` | 出力C3Dパス |
 | `--cutoff` | `6.0` | カットオフ周波数[Hz]。下げるほど滑らか |
 | `--rate` | なし | サンプリング周波数の補完（C3Dのpoint rate欠損時のみ使用可） |
+| `--max-gap` | `10` | 線形補間する欠損ギャップ長の上限[フレーム]。超過はセグメント分割 |
+
+### filter_npz.py（NPZ時間方向平滑化）
+
+リフトアップ済み3DキーポイントNPZ（`npz_to_c3d.py` 入力と同一フォーマット）を C3D 変換なしで直接平滑化し、新しいNPZに書き出す。フィルタは `filter_c3d.py` と同一（Butterworth 2次 filtfilt・ゼロ位相）。NaN（人不在区間）は出力でも NaN のまま維持し、必須3キー以外の追加キーは無加工でコピーする。
+
+```bash
+uv run python filter_npz.py data/session001_world_22pt.npz --fps 30
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--fps` | （必須） | サンプリング周波数[Hz]（NPZに記録がないため必須） |
+| `--output` | `<入力>_filtered.npz` | 出力NPZパス |
+| `--cutoff` | `6.0` | カットオフ周波数[Hz]。下げるほど滑らか |
 | `--max-gap` | `10` | 線形補間する欠損ギャップ長の上限[フレーム]。超過はセグメント分割 |
 
 ### render.py（バッチレンダリング）

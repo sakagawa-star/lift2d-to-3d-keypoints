@@ -2,6 +2,17 @@
 
 ## リリース履歴
 
+### 2026-08-07
+
+- **feat-028**: NPZキーポイントの時間方向平滑化スクリプト
+  - 新規 `phase4/filter_npz.py`: 規約NPZ（`x3d_world`/`frame_ids`/`joint_names`、`npz_to_c3d.py` 入力と同一フォーマット）を Butterworth 2次 filtfilt（ゼロ位相、カットオフ既定 6.0 Hz）で時間方向に平滑化し、新しいNPZに書き出す。feat-027（NPZ直読みFPS動画一括生成）の前段として C3D・Blender 工程なしで平滑化できるようにするもの
+  - NaN 無効サンプルは feat-020 と同一方式: `--max-gap`（既定10）以下のギャップは線形補間をフィルタ計算にのみ使用、超えるギャップはセグメント分割、10サンプル未満のセグメントは平滑化スキップ（ユーザー確定仕様）、出力では NaN を NaN のまま維持
+  - 追加キー（`pnp_ok`, `coord_system` 等）は無加工で出力にコピー（`pnp_ok` の意味はデータ作成者に確認中のため解釈しない）。`x3d_world` の dtype は入力と同一（計算は float64）。`--fps` は必須引数（NPZ に記録がなく、誤った既定値は平滑化強度を黙って変えるため）
+  - 原子的書き出し + 読み戻し検証（キー集合・形状・dtype・非有限マスク・frame_ids・joint_names・追加キーの入力一致を毎回検証）
+  - テスト: `tests/test_feat028_filter_npz.py` 新規18件。全体 294 passed / 1 skipped（`tests/results/feat-028_test_result.txt`）
+  - 実データ確認: 194,279フレーム・22関節でフレーム間変位 11.8→4.6 mm。feat-020 `filter_c3d.py` との2経路出力比較で数値等価を確認（差は float32 丸めのみ、最大 0.17 µm。`docs/issues/feat-028-npz-temporal-filter/experiments/c3d-npz-equivalence/`）
+  - Codex レビュー3サイクルで高・中ゼロ収束（codex-01〜03）。実装は Sonnet サブエージェント委任。手動テスト合格（2026-08-07）
+
 ### 2026-08-03
 
 - **update-002**: 「予測→実行→照合」プロトコルの開発ルール組み込み
