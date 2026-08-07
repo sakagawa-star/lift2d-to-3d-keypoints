@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(pip install*)",
+      "Bash(pip3 install*)",
+      "Bash(python -m venv*)",
+      "Bash(python3 -m venv*)",
+      "Bash(python -m pip*)",
+      "Bash(python3 -m pip*)",
+      "Bash(virtualenv*)"
+    ]
+  }
+}
