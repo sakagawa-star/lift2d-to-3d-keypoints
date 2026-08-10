@@ -187,9 +187,10 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 
 ### 実行環境の注意
 
-- **CUDA GPU 必須**（render.py / render_keypoints.py）。gsplat の CUDA 拡張が初回実行時に JIT コンパイルされるため、環境変数 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` を必ず付ける**（理由の詳細は CLAUDE.md 参照）
+- **CUDA GPU 必須**（render.py / render_keypoints.py / render_fps_video.py）。gsplat の CUDA 拡張が初回実行時に JIT コンパイルされるため、環境変数 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` を必ず付ける**（理由の詳細は CLAUDE.md 参照）
+- `render_fps_video.py` の MP4 モードは **ffmpeg / ffprobe（libx264 エンコーダが有効なビルド）も必須**（開始前に検査され、なければエラー終了）
 - `camera_pose.py` / `fps_camera_pose.py` は Blender 内スクリプト（`blender -b ... --python ...` で実行。fps_camera_pose.py は Blender 4.5.5）
-- `npz_to_c3d.py` / `filter_c3d.py` / `filter_npz.py` は Blender・GPU 不要
+- `npz_to_c3d.py` / `filter_c3d.py` / `filter_npz.py` は Blender・GPU 不要（render_fps_video.py の `--dump-poses` モードも GPU 不要）
 - データファイル（PLY・ポーズJSON・C3D・.blend）は `phase4/data/` に置く（git管理外）
 
 ### スクリプト一覧
@@ -204,6 +205,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
+| `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応） |
 
 ### camera_pose.py（カメラポーズ書き出し）
 
@@ -356,6 +358,53 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 受理判定はサンプリング型（3チェーン×20サンプルの合意 f_c≥0.7。二峰時は手動点再投影で仲裁）。結果・失敗段・診断値はレポート参照
 - 事前準備: `uv sync --project matcher_lab` と LoFTR 重みのローカル配置（初回のみ `matcher_lab/loftr_smoke.py` の実行で自動取得）。実行時はオフラインで動作
 - 処理時間の目安: 1カメラ 3〜6分（RTX 5060 Ti 実測）
+
+### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029）
+
+リフトアップ済み3DキーポイントNPZ（`npz_to_c3d.py` 入力と同一フォーマット。`filter_npz.py` で平滑化済みを想定）から、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）でFPSカメラポーズを計算し、3DGS（PLY）をレンダリングして1本のMP4を生成する。Blender・C3D 工程は不要。頭部7点が `joint_names` にない NPZ はエラー終了する。
+
+- カメラ位置=両目中点、向き=一次視線（`fps_camera_pose.py` と同一の数式。旧Blenderパイプラインとの等価性検証済み）
+- 内部パラメータは Calib_scene.toml 型 TOML から `--camera` で選択（ピンホール。歪み係数は無視。width/height は偶数必須）
+- 頭部7点に NaN があるフレームと縮退フレームは黒画面で出力し、タイムライン（動画時刻=実時刻）を維持する
+- チャンク（既定10000フレーム）単位の区間MP4で生成して最後に連結。中断後は同じコマンドの再実行で完成済みチャンクをスキップして再開（破損チャンクは ffprobe 検査で検出して作り直し。パラメータ変更時はエラー、`--overwrite` で作り直し）
+
+```bash
+# MP4 生成
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py data/<PLY> data/<NPZ> \
+    --toml data/Calib_FPSCamera.toml --camera FPSCamera --fps 30
+
+# 設定YAMLで実行（feat-029。CLI 指定が YAML を上書き）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py --config data/run_fps.yaml
+
+# ポーズのみJSONダンプ（GPU不要）/ デバッグ静止画（それぞれ排他モード）
+uv run python render_fps_video.py data/<PLY> data/<NPZ> --toml <TOML> --camera <名前> --fps 30 --dump-poses poses.json
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--toml` | （必須※） | Calib_scene.toml 型 TOML パス |
+| `--camera` | （必須※) | TOML 内のカメラ名 |
+| `--fps` | （必須※） | フレームレート（NPZに記録がないため必須） |
+| `--output` | `<NPZ名>_fps.mp4` | 最終MP4パス（NPZと同ディレクトリ） |
+| `--gpu` | `0` | 使用GPU ID（単一） |
+| `--chunk-size` | `10000` | チャンクのフレーム数（再開の単位） |
+| `--crf` / `--preset` | `18` / `medium` | libx264 エンコード設定 |
+| `--overwrite` | OFF | チャンクディレクトリを削除して作り直す |
+| `--keep-chunks` | OFF | 連結後もチャンクディレクトリを残す |
+| `--still-range START END` | なし | デバッグ静止画モード（排他。frame_id 基準・両端含む。`--still-dir` 必須） |
+| `--dump-poses PATH` | なし | ポーズダンプモード（排他。c2w を JSON 出力、GPU不要） |
+| `--config PATH` | なし | 設定YAML（フラット `key: value`。キーは CLI 名のハイフン→アンダースコア。※必須項目は YAML でも指定可） |
+
+設定YAMLの例:
+
+```yaml
+ply_path: data/point_cloud.ply
+npz_path: data/session001_filtered.npz
+toml: data/Calib_FPSCamera.toml
+camera: FPSCamera
+fps: 30
+output: data/session001_fps.mp4
+```
 
 ## テスト
 

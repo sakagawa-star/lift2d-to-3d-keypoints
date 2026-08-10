@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import Callable
 
 import numpy as np
 
@@ -568,16 +569,158 @@ def _crf_int(value: str) -> int:
     return i
 
 
+# === feat-029: 設定YAML（--config） ===
+
+def _yaml_bool(value: str) -> bool:
+    """設定YAMLのbool値を変換する（小文字の true/false のみ許可）。"""
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise argparse.ArgumentTypeError(
+        f"true または false である必要があります（小文字のみ）: {value}"
+    )
+
+
+def _yaml_still_range(value: str) -> list[int]:
+    """設定YAMLの still_range 値（スペース区切り整数2個）を変換する。"""
+    parts = value.split()
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(
+            f"スペース区切りの整数2個である必要があります: {value}"
+        )
+    try:
+        return [int(parts[0]), int(parts[1])]
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"整数に変換できません: {value}") from e
+
+
+def load_yaml_flat(yaml_path: str) -> dict[str, str]:
+    """設定YAMLを簡易フラットパーサーで読み込む（phase0/common.py load_yaml_simple と同仕様）。
+
+    utf-8で読み、行ごとにstrip。空行と'#'始まりの行はスキップ。':'を含む行を
+    最初の':'で分割し、key.strip(): value.strip()を返す（値は常に文字列）。
+    ':'を含まない非空行はスキップする。ファイル不在・読み取り不能はOSErrorを送出する。
+
+    Args:
+        yaml_path: 設定YAMLのパス。
+
+    Returns:
+        {キー: 値（文字列）} の辞書。
+
+    Raises:
+        OSError: ファイルが存在しない・読み取れない場合。
+    """
+    config: dict[str, str] = {}
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ":" in line:
+                key, value = line.split(":", 1)
+                config[key.strip()] = value.strip()
+    return config
+
+
+CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
+    "ply_path": str, "npz_path": str, "toml": str, "camera": str,
+    "output": str, "preset": str, "still_dir": str, "dump_poses": str,
+    "fps": _positive_float, "gpu": _nonnegative_int,
+    "chunk_size": _positive_int, "crf": _crf_int,
+    "overwrite": _yaml_bool, "keep_chunks": _yaml_bool,
+    "still_range": _yaml_still_range,
+}
+
+
+def parse_config_yaml(yaml_path: str, parser: argparse.ArgumentParser) -> dict:
+    """設定YAMLを読み込み、キー検証・型変換して {dest名: 変換済み値} を返す。
+
+    Args:
+        yaml_path: 設定YAMLのパス。
+        parser: エラー報告に使うパーサー（parser.error で usage + メッセージを
+            stderr に出し終了コード2で終了する）。
+
+    Returns:
+        {dest名: 変換済み値} の辞書（parser.set_defaults にそのまま渡せる）。
+    """
+    try:
+        raw = load_yaml_flat(yaml_path)
+    except OSError as e:
+        parser.error(f"--config が読み込めません: {yaml_path}: {e}")
+
+    if "config" in raw:
+        parser.error("設定YAMLに config キーは書けません（連鎖読み込み不可）")
+
+    unknown = [k for k in raw if k not in CONFIG_CONVERTERS]
+    if unknown:
+        parser.error(
+            f"設定YAMLに未知のキーがあります: {', '.join(unknown)}。"
+            f"有効なキー: {sorted(CONFIG_CONVERTERS)}"
+        )
+
+    result: dict = {}
+    for k, v in raw.items():
+        converter = CONFIG_CONVERTERS[k]
+        try:
+            result[k] = converter(v)
+        except (argparse.ArgumentTypeError, ValueError, TypeError) as e:
+            parser.error(f"設定YAML キー '{k}': {e}")
+    return result
+
+
+def parse_args_with_config(
+    argv=None, parser: argparse.ArgumentParser | None = None
+) -> argparse.Namespace:
+    """--config と CLI 引数を統合してパースする（優先順位: CLI > 設定YAML > デフォルト）。
+
+    Args:
+        argv: コマンドライン引数（None ならsys.argv）。
+        parser: 使用するパーサー（None なら内部で _build_parser() を呼ぶ）。
+            main() は自作の parser を渡し、以降の parser.error 呼び出しで
+            同一のparserオブジェクトを使い続ける。
+
+    Returns:
+        統合・検証済みの argparse.Namespace。
+    """
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None)
+    pre_args, _ = pre_parser.parse_known_args(argv)
+
+    if parser is None:
+        parser = _build_parser()
+
+    if pre_args.config is not None:
+        defaults = parse_config_yaml(pre_args.config, parser)
+        parser.set_defaults(**defaults)
+
+    args = parser.parse_args(argv)
+
+    required_dests = [
+        ("ply_path", "ply_path"), ("npz_path", "npz_path"),
+        ("toml", "--toml"), ("camera", "--camera"), ("fps", "--fps"),
+    ]
+    missing = [label for dest, label in required_dests if getattr(args, dest) is None]
+    if missing:
+        parser.error(
+            f"必須項目が未指定です（CLIまたは--configで指定）: {', '.join(missing)}"
+        )
+
+    return args
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="NPZ直読みによる一人称視点動画一括生成（Blender廃止）",
         allow_abbrev=False,
     )
-    parser.add_argument("ply_path", help="3DGS PLYファイルパス")
-    parser.add_argument("npz_path", help="入力NPZパス（平滑化済み想定）")
-    parser.add_argument("--toml", required=True, help="Calib_scene.toml型TOMLパス")
-    parser.add_argument("--camera", required=True, help="TOML内の対象カメラ名")
-    parser.add_argument("--fps", required=True, type=_positive_float,
+    parser.add_argument("ply_path", nargs="?", default=None,
+                        help="3DGS PLYファイルパス（--config でも指定可）")
+    parser.add_argument("npz_path", nargs="?", default=None,
+                        help="入力NPZパス（平滑化済み想定。--config でも指定可）")
+    parser.add_argument("--toml", default=None, help="Calib_scene.toml型TOMLパス")
+    parser.add_argument("--camera", default=None, help="TOML内の対象カメラ名")
+    parser.add_argument("--fps", type=_positive_float, default=None,
                         help="フレームレート（float。実データは30）")
     parser.add_argument("--output", default=None,
                         help="最終MP4パス（default: <NPZ名>_fps.mp4、NPZと同ディレクトリ）")
@@ -598,6 +741,12 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="静止画モードのPNG出力ディレクトリ（--still-range時必須）")
     parser.add_argument("--dump-poses", default=None,
                         help="ポーズダンプモード（排他）の出力JSONパス")
+    parser.add_argument(
+        "--config", default=None,
+        help="設定YAML（フラット key: value）。優先順位は CLI > 設定YAML > デフォルト。"
+             "--overwrite/--keep-chunks は CLI から true 方向のみ上書き可"
+             "（設定YAMLの true を false に戻すには設定YAMLを編集する）"
+    )
     return parser
 
 
@@ -831,7 +980,7 @@ def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndar
 
 def main(argv=None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parse_args_with_config(argv, parser)
 
     # 排他制約（重い処理より前に検証）
     if args.still_range is not None and args.dump_poses is not None:

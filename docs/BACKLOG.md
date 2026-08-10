@@ -37,5 +37,6 @@
 | feat-026 | 機能追加 | レンダリング＋自動マッチングによる外部パラメータ自動リファイン | Closed |
 | update-001 | ドキュメント更新 | 開発ドキュメントテンプレート改訂の取り込み（update-XXXフロー導入） | Closed |
 | update-002 | ドキュメント更新 | 「予測→実行→照合」プロトコルの開発ルール組み込み | Closed |
-| feat-027 | 機能追加 | NPZ直読みによる一人称視点動画一括生成（Blender廃止・複数GPU並列） | Open |
+| feat-027 | 機能追加 | NPZ直読みによる一人称視点動画一括生成（Blender廃止。複数GPU並列は後続案件に分割） | Closed |
 | feat-028 | 機能追加 | NPZキーポイントの時間方向平滑化スクリプト（feat-027の前段） | Closed |
+| feat-029 | 機能追加 | render_fps_video.py の YAML 設定ファイル読み込み（長いCLIの省力化） | Closed |

@@ -112,6 +112,7 @@ lift2d-to-3d-keypoints/
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   ├── filter_npz.py                  # NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要、NaN区間維持・追加キー無加工コピー。feat-028）
 │   ├── refine_extrinsics.py           # 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化バッチ（K既知、サンプリング型受理判定、Calib_scene.toml型出力+診断レポート。feat-026）
+│   ├── render_fps_video.py            # NPZ直読みFPS動画一括生成（頭部キーポイントからポーズをnumpy計算、ピンホールK、NaN=黒画面、チャンク分割+耐久書き出し+ffprobe破損検査つき再開、静止画/ポーズダンプ排他モード、--config YAML対応。feat-027/029）
 │   └── data/                          # データファイル（gitignore）
 ├── matcher_lab/                       # 学習ベースマッチャー環境（独立した uv 環境。feat-026）
 │   ├── pyproject.toml                 # uv パッケージ管理（Python 3.12 / torch cu130 / kornia）

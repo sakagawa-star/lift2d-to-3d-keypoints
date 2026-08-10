@@ -2,6 +2,21 @@
 
 ## リリース履歴
 
+### 2026-08-10
+
+- **feat-027**: NPZ直読みによる一人称視点動画一括生成（Blender廃止）
+  - 新規 `phase4/render_fps_video.py`: 巨大NPZ（`npz_to_c3d.py` 入力と同一フォーマット）を直読みし、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）からFPSカメラポーズを numpy で計算（`fps_camera_pose.py` の数式移植。位置=両目中点、向き=一次視線）、3DGS（PLY）を gsplat でレンダリングして1本のMP4を生成。Blender・C3D 工程を廃止
+  - 内部パラメータは Calib_scene.toml 型 TOML（`--camera` 選択、ピンホール・D無視）。NaN・縮退フレームは黒画面でタイムライン維持（縮退は警告ログ）。単一GPU直列（複数GPU並列は人レビューで後続案件に分割）
+  - 信頼性: チャンク（既定10000フレーム）単位の区間MP4 + ffmpeg concat 連結。確定書き出しは全経路 fsync 込みの耐久リネーム（`durable_replace`）、再開時は ffprobe メタデータ検査で破損チャンクを検出して作り直し（ファイル存在だけで完成扱いしない）。エンコーダは libx264 固定（A100 は NVENC 非搭載）で起動前に使用可否を検査
+  - 排他モード: `--still-range`（frame_id 範囲の連番PNG）と `--dump-poses`（c2w の JSON ダンプ、GPU不要）
+  - 等価性検証（FR-012・案A）: 旧 Blender パイプラインとの c2w 照合で合格。a1（既存 .blend、300フレーム）位置差 max 1.2e-07 m・回転角度差 max 1.5e-02°、a2（filter_npz 平滑化済みNPZを共通出発点に実運用フロー〔npz_to_c3d → io_anim_c3d → リグ再構築〕でデータ再構築、Blender 4.5.5）位置差 max 6.0e-08 m・回転角度差 max 1.6e-02°（いずれも基準 1mm / 0.1°、criteria lock 方式。`docs/issues/feat-027-fps-video-from-npz/experiments/`）
+  - 手動テスト: 正しい PLY（HandaiHospital-20251024-01）+ `Calib_FPSCamera.toml` で MP4 生成、a2 の Blender シーン目視確認、K を統一した新旧動画の目視比較（だいたい同じ=ポーズ残差 max 0.6px 級 + エンコーダ差で説明可能）で合格（2026-08-10）
+  - テスト: `tests/test_feat027_render_fps_video.py` 新規37件。Codex レビュー20回（codex-01〜20。設計10回 + 実装後訂正 + 実験 criteria）で高・中ゼロ収束。実装は Sonnet サブエージェント委任
+- **feat-029**: render_fps_video.py の YAML 設定ファイル読み込み
+  - `--config <YAML>` を追加。フラット `key: value` の簡易パーサー（phase0 と同方式、新規ライブラリなし）で15キー（ply_path/npz_path/toml/camera/fps/output/gpu/chunk_size/crf/preset/overwrite/keep_chunks/still_range/still_dir/dump_poses）を読み込む。優先順位は CLI 明示指定 > YAML > 既定値
+  - 値には CLI と同一の型検証を適用（型変換失敗・範囲違反・未知キー・bool不正・config連鎖はすべてキー名つきエラー）。必須項目は CLI/YAML の統合後に検証。`--config` なしの挙動は完全後方互換
+  - テスト: `tests/test_feat029_config_yaml.py` 新規24件（全体回帰 355 passed / 1 skipped）。手動テストで YAML 経由と CLI 直接指定の出力 MP4 が MD5 完全一致を確認し合格（2026-08-10）。Codex レビュー3回で高・中ゼロ収束（codex-01〜03）。実装は Sonnet サブエージェント委任
+
 ### 2026-08-07
 
 - **feat-028**: NPZキーポイントの時間方向平滑化スクリプト
