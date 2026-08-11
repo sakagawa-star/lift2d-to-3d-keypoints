@@ -18,8 +18,11 @@ render.py）を廃止し、手動作業ゼロで長時間データをバッチ�
 
 import argparse
 import json
+import multiprocessing
 import os
+import queue
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -482,8 +485,17 @@ def render_chunk(chunk: dict, viewmats, valid, config: dict, gaussians) -> tuple
                 write_error = str(e)
                 break
     except KeyboardInterrupt:
+        if proc.stdin and not proc.stdin.closed:
+            try:
+                proc.stdin.close()          # EOF送出。パイプ読み取りブロックを解く
+            except OSError:
+                pass
         proc.terminate()
-        proc.wait()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:   # なお終了しない場合のエスカレーション
+            proc.kill()
+            proc.wait()
         raise
 
     if proc.stdin and not proc.stdin.closed:
@@ -569,6 +581,26 @@ def _crf_int(value: str) -> int:
     return i
 
 
+def _gpus_list(value: str) -> list[int]:
+    """カンマ区切り非負整数リストをパースする（argparse type / YAML コンバータ兼用）。
+
+    空要素・非整数・負数は argparse.ArgumentTypeError を送出する。
+    """
+    result: list[int] = []
+    for part in value.split(","):
+        s = part.strip()
+        if s == "":
+            raise argparse.ArgumentTypeError(f"空の要素があります: {value}")
+        try:
+            i = int(s)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"整数ではありません: {s}") from None
+        if i < 0:
+            raise argparse.ArgumentTypeError(f"非負整数である必要があります: {s}")
+        result.append(i)
+    return result
+
+
 # === feat-029: 設定YAML（--config） ===
 
 def _yaml_bool(value: str) -> bool:
@@ -626,7 +658,7 @@ def load_yaml_flat(yaml_path: str) -> dict[str, str]:
 CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
     "ply_path": str, "npz_path": str, "toml": str, "camera": str,
     "output": str, "preset": str, "still_dir": str, "dump_poses": str,
-    "fps": _positive_float, "gpu": _nonnegative_int,
+    "fps": _positive_float, "gpu": _nonnegative_int, "gpus": _gpus_list,
     "chunk_size": _positive_int, "crf": _crf_int,
     "overwrite": _yaml_bool, "keep_chunks": _yaml_bool,
     "still_range": _yaml_still_range,
@@ -696,6 +728,9 @@ def parse_args_with_config(
 
     args = parser.parse_args(argv)
 
+    if args.gpus is None and args.gpu is None:
+        args.gpu = 0
+
     required_dests = [
         ("ply_path", "ply_path"), ("npz_path", "npz_path"),
         ("toml", "--toml"), ("camera", "--camera"), ("fps", "--fps"),
@@ -724,7 +759,11 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="フレームレート（float。実データは30）")
     parser.add_argument("--output", default=None,
                         help="最終MP4パス（default: <NPZ名>_fps.mp4、NPZと同ディレクトリ）")
-    parser.add_argument("--gpu", type=_nonnegative_int, default=0, help="使用GPU ID（default: 0）")
+    parser.add_argument("--gpu", type=_nonnegative_int, default=None,
+                        help="使用GPU ID（default: 0。--gpus と併用不可）")
+    parser.add_argument("--gpus", type=_gpus_list, default=None,
+                        help="並列ワーカーのGPU IDリスト（カンマ区切り、要素数=ワーカー数。"
+                             "例: 0,0 はGPU 0に2ワーカー。--gpu と併用不可）")
     parser.add_argument("--chunk-size", type=_positive_int, default=10000,
                         help="チャンクのフレーム数（default: 10000）")
     parser.add_argument("--crf", type=_crf_int, default=18,
@@ -841,6 +880,214 @@ def _run_still_mode(args: argparse.Namespace, frame_ids: np.ndarray, intrinsics:
     return 0
 
 
+# === feat-030: 並列モード ===
+
+def select_pending_chunks(chunks: list[dict], skip_indices: set[int]) -> list[dict]:
+    """skip_indices に含まれない chunk を元の順序で返す。"""
+    return [c for c in chunks if c["index"] not in skip_indices]
+
+
+def cleanup_tmp_files(chunk_dir: str) -> None:
+    """chunk_dir 直下の *.tmp を削除する（OSError は個別に握りつぶす）。"""
+    for name in os.listdir(chunk_dir):
+        if name.endswith(".tmp"):
+            try:
+                os.remove(os.path.join(chunk_dir, name))
+            except OSError:
+                pass
+
+
+def _sigterm_to_interrupt(signum, frame) -> None:
+    """ワーカー用: SIGTERM を KeyboardInterrupt に変換する（render_chunk の
+    既存 KeyboardInterrupt 経路で ffmpeg を確実に terminate させるため）。"""
+    raise KeyboardInterrupt
+
+
+def _worker_main(worker_idx: int, gpu_id: int, chunks: list[dict],
+                 viewmats: np.ndarray, valid: np.ndarray, config: dict,
+                 ply_path: str, task_q, result_q) -> None:
+    """並列モードのワーカー本体（子プロセスのエントリポイント）。
+
+    task_q からチャンク index を取得し render_chunk() を呼ぶ。番兵（None）を
+    受け取ったら正常終了する（これが唯一の exitcode 0 経路）。
+    """
+    signal.signal(signal.SIGTERM, _sigterm_to_interrupt)
+    import torch  # 関数内 import（既存方針どおり）
+    torch.cuda.set_device(gpu_id)
+
+    chunk_by_index = {c["index"]: c for c in chunks}
+    gaussians = None
+    current_idx = None
+
+    try:
+        while True:
+            current_idx = None
+            idx = task_q.get()
+            if idx is None:
+                return
+            current_idx = idx
+            chunk = chunk_by_index[idx]
+            try:
+                if valid[chunk["i0"]:chunk["i1"]].any() and gaussians is None:
+                    from render import load_ply
+                    print(f"[W{worker_idx}] PLYファイル読み込み中: {ply_path}", flush=True)
+                    gaussians = load_ply(ply_path)
+                n_rendered, sec = render_chunk(chunk, viewmats, valid, config, gaussians)
+            except BaseException as e:
+                tmp = os.path.join(config["chunk_dir"], chunk_filename(chunk) + ".tmp")
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+                result_q.put(("error", worker_idx, idx, f"{type(e).__name__}: {e}"))
+                sys.exit(1)
+            result_q.put(("done", worker_idx, idx, n_rendered, sec))
+    except KeyboardInterrupt:
+        # SIGTERM（親の _abort または外部 kill）。沈黙の exitcode 0 終了は禁止:
+        # 親が必ず検出できるよう、メッセージ送信を試みたうえで非0終了する
+        if current_idx is not None:
+            tmp = os.path.join(
+                config["chunk_dir"], chunk_filename(chunk_by_index[current_idx]) + ".tmp"
+            )
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            try:
+                result_q.put(("error", worker_idx, current_idx, "SIGTERM により停止"))
+            except Exception:
+                pass
+        sys.exit(1)
+
+
+def _abort(procs, chunk_dir) -> None:
+    """全ワーカー停止（SIGTERM→SIGKILL エスカレーション）と *.tmp 掃除。"""
+    for p in procs:
+        if p.is_alive():
+            p.terminate()
+    for p in procs:
+        p.join(timeout=10)
+    for p in procs:
+        if p.is_alive():
+            p.kill()
+            p.join(timeout=5)
+    cleanup_tmp_files(chunk_dir)
+
+
+def _dispatch_loop(procs, result_q, pending_count: int, chunks: list[dict],
+                   chunk_dir: str) -> tuple[int, int, float]:
+    """結果集約・失敗検知・中止（FR-002/FR-004）。
+
+    Returns:
+        (終了コード, 描画フレーム総数, ワーカー別所要秒の合算)
+    """
+    remaining = pending_count
+    total_rendered = 0
+    total_sec = 0.0
+    chunk_by_index = {c["index"]: c for c in chunks}
+
+    try:
+        while remaining > 0:
+            try:
+                msg = result_q.get(timeout=1.0)
+            except queue.Empty:
+                dead = [(i, p) for i, p in enumerate(procs)
+                        if p.exitcode not in (None, 0)]
+                if dead:
+                    i, p = dead[0]
+                    print(
+                        f"エラー: ワーカー W{i} が異常終了しました（exit code {p.exitcode}）",
+                        file=sys.stderr
+                    )
+                    _abort(procs, chunk_dir)
+                    return (1, total_rendered, total_sec)
+                continue
+            if msg[0] == "done":
+                _, w, idx, n_rendered, sec = msg
+                c = chunk_by_index[idx]
+                print(
+                    f"[W{w}] チャンク {idx:05d} (fid {c['fid0']}-{c['fid1']}) 完了: "
+                    f"描画 {n_rendered}/{c['i1'] - c['i0']} フレーム, {sec:.1f}秒"
+                )
+                total_rendered += n_rendered
+                total_sec += sec
+                remaining -= 1
+            elif msg[0] == "error":
+                _, w, idx, message = msg
+                print(
+                    f"エラー: ワーカー W{w} でチャンク {idx:05d} が失敗しました: {message}",
+                    file=sys.stderr
+                )
+                _abort(procs, chunk_dir)
+                return (1, total_rendered, total_sec)
+    except KeyboardInterrupt:
+        print("中断されました", file=sys.stderr)
+        _abort(procs, chunk_dir)
+        return (130, total_rendered, total_sec)
+
+    for p in procs:
+        p.join(timeout=30)
+        if p.is_alive():
+            p.terminate()
+            p.join(timeout=5)
+    return (0, total_rendered, total_sec)
+
+
+def _run_parallel_chunks(args, chunks, skip_indices, viewmats, valid, config,
+                         chunk_dir) -> tuple[int, int, float]:
+    """並列モードの本体。(終了コード, 描画フレーム総数, 実効描画秒) を返す。
+
+    実効描画秒＝ワーカー起動直前から全チャンク完了受信までの wall-clock 秒
+    （ワーカーの CUDA 初期化・PLY ロードを含む。ワーカー別所要秒の単純加算は
+    並列では実効スループットにならないため使わない）。
+    終了コード 0 以外のとき呼び出し元は即 return する。
+    """
+    for chunk in chunks:
+        if chunk["index"] in skip_indices:
+            print(f"チャンク {chunk['index']:05d} スキップ（完成済み）")
+
+    pending = select_pending_chunks(chunks, skip_indices)
+    if len(pending) == 0:
+        return (0, 0, 0.0)
+
+    print(f"並列: {len(args.gpus)}ワーカー（GPU割当: {','.join(map(str, args.gpus))}）")
+
+    ctx = multiprocessing.get_context("spawn")
+    task_q = ctx.Queue()
+    result_q = ctx.Queue()
+    for chunk in pending:
+        task_q.put(chunk["index"])
+    for _ in range(len(args.gpus)):
+        task_q.put(None)
+
+    wall_t0 = time.time()
+    procs = []
+    for worker_idx, gpu_id in enumerate(args.gpus):
+        p = ctx.Process(
+            target=_worker_main,
+            args=(worker_idx, gpu_id, chunks, viewmats, valid, config,
+                  args.ply_path, task_q, result_q),
+            daemon=True,
+        )
+        p.start()
+        procs.append(p)
+
+    rc, total_rendered, worker_sec_sum = _dispatch_loop(
+        procs, result_q, len(pending), chunks, chunk_dir
+    )
+    render_wall_sec = time.time() - wall_t0
+
+    if rc == 0:
+        print(
+            f"ワーカー描画時間合計: {worker_sec_sum:.1f}秒（実効 {render_wall_sec:.1f}秒, "
+            f"{len(args.gpus)}ワーカー）"
+        )
+
+    return (rc, total_rendered, render_wall_sec)
+
+
 def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndarray,
                   intrinsics: dict, viewmats: np.ndarray, valid: np.ndarray) -> int:
     """FR-005/FR-007/FR-008: チャンク分割・区間MP4レンダリング・再開・連結の本体処理。"""
@@ -850,8 +1097,9 @@ def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndar
     chunks = plan_chunks(F, args.chunk_size, frame_ids)
     chunk_dir = output_path + ".chunks"
 
+    gpu_label = f"{args.gpu}" if args.gpus is None else "並列（--gpus）"
     print(
-        f"チャンク: {len(chunks)}個（chunk_size={args.chunk_size}）, 使用GPU: {args.gpu}, "
+        f"チャンク: {len(chunks)}個（chunk_size={args.chunk_size}）, 使用GPU: {gpu_label}, "
         f"解像度 {width}x{height}, fps={args.fps}, crf={args.crf}, preset={args.preset}"
     )
     print(f"出力: {output_path}")
@@ -903,9 +1151,6 @@ def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndar
                     )
                     os.remove(final_path)
 
-    import torch  # 関数内 import（torch/gsplat依存）
-    torch.cuda.set_device(args.gpu)
-
     config = {
         "width": width, "height": height,
         "fx": intrinsics["fx"], "fy": intrinsics["fy"],
@@ -915,47 +1160,58 @@ def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndar
         "black_frame": bytes(height * width * 3),
     }
 
-    gaussians = None
-    total_rendered = 0
-    total_render_sec = 0.0
     start_time = time.time()
 
-    try:
-        for chunk in chunks:
-            if chunk["index"] in skip_indices:
-                print(f"チャンク {chunk['index']:05d} スキップ（完成済み）")
-                continue
+    if args.gpus is None:
+        import torch  # 関数内 import（torch/gsplat依存）
+        torch.cuda.set_device(args.gpu)
 
-            chunk_valid = valid[chunk["i0"]:chunk["i1"]]
-            if bool(chunk_valid.any()) and gaussians is None:
-                from render import load_ply
-                print(f"PLYファイル読み込み中: {args.ply_path}")
-                gaussians = load_ply(args.ply_path)
+        gaussians = None
+        total_rendered = 0
+        total_render_sec = 0.0
 
-            try:
-                n_rendered, sec = render_chunk(chunk, viewmats, valid, config, gaussians)
-            except Exception as e:
-                tmp_path = os.path.join(chunk_dir, chunk_filename(chunk) + ".tmp")
-                if os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except OSError:
-                        pass
+        try:
+            for chunk in chunks:
+                if chunk["index"] in skip_indices:
+                    print(f"チャンク {chunk['index']:05d} スキップ（完成済み）")
+                    continue
+
+                chunk_valid = valid[chunk["i0"]:chunk["i1"]]
+                if bool(chunk_valid.any()) and gaussians is None:
+                    from render import load_ply
+                    print(f"PLYファイル読み込み中: {args.ply_path}")
+                    gaussians = load_ply(args.ply_path)
+
+                try:
+                    n_rendered, sec = render_chunk(chunk, viewmats, valid, config, gaussians)
+                except Exception as e:
+                    tmp_path = os.path.join(chunk_dir, chunk_filename(chunk) + ".tmp")
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            pass
+                    print(
+                        f"エラー: チャンク {chunk['index']:05d} が失敗しました: {e}", file=sys.stderr
+                    )
+                    return 1
+
+                total_rendered += n_rendered
+                total_render_sec += sec
+                n = chunk["i1"] - chunk["i0"]
                 print(
-                    f"エラー: チャンク {chunk['index']:05d} が失敗しました: {e}", file=sys.stderr
+                    f"チャンク {chunk['index']:05d} (fid {chunk['fid0']}-{chunk['fid1']}) 完了: "
+                    f"描画 {n_rendered}/{n} フレーム, {sec:.1f}秒"
                 )
-                return 1
-
-            total_rendered += n_rendered
-            total_render_sec += sec
-            n = chunk["i1"] - chunk["i0"]
-            print(
-                f"チャンク {chunk['index']:05d} (fid {chunk['fid0']}-{chunk['fid1']}) 完了: "
-                f"描画 {n_rendered}/{n} フレーム, {sec:.1f}秒"
-            )
-    except KeyboardInterrupt:
-        print("\n中断されました", file=sys.stderr)
-        return 130
+        except KeyboardInterrupt:
+            print("\n中断されました", file=sys.stderr)
+            return 130
+    else:
+        rc, total_rendered, total_render_sec = _run_parallel_chunks(
+            args, chunks, skip_indices, viewmats, valid, config, chunk_dir
+        )
+        if rc != 0:
+            return rc
 
     chunk_names = [chunk_filename(c) for c in chunks]
     print(f"連結: {output_path}（{F} フレーム）")
@@ -997,6 +1253,11 @@ def main(argv=None) -> int:
     if args.still_range is not None and args.still_dir is None:
         parser.error("--still-range 指定時は --still-dir が必須です")
 
+    if args.gpus is not None and args.gpu is not None:
+        parser.error("--gpu と --gpus は併用できません（設定YAMLの gpu / gpus キー経由の指定を含む）")
+    if args.gpus is not None and exclusive_mode:
+        parser.error("--gpus は --still-range / --dump-poses と併用できません")
+
     # ファイル存在チェック
     for path, label in [(args.ply_path, "PLYファイル"), (args.npz_path, "NPZファイル"),
                         (args.toml, "TOMLファイル")]:
@@ -1035,7 +1296,15 @@ def main(argv=None) -> int:
     if mp4_mode or still_mode:
         import torch  # 関数内 import（torch依存）
         n_gpu = torch.cuda.device_count()
-        if args.gpu >= n_gpu:
+        if args.gpus is not None:
+            bad = [g for g in args.gpus if g >= n_gpu]
+            if bad:
+                print(
+                    f"エラー: 指定GPU ID {', '.join(map(str, bad))} が範囲外です"
+                    f"（利用可能: 0〜{n_gpu - 1}）", file=sys.stderr
+                )
+                return 1
+        elif args.gpu >= n_gpu:
             print(
                 f"エラー: 指定GPU ID {args.gpu} が範囲外です（利用可能: 0〜{n_gpu - 1}）",
                 file=sys.stderr

@@ -40,3 +40,4 @@
 | feat-027 | 機能追加 | NPZ直読みによる一人称視点動画一括生成（Blender廃止。複数GPU並列は後続案件に分割） | Closed |
 | feat-028 | 機能追加 | NPZキーポイントの時間方向平滑化スクリプト（feat-027の前段） | Closed |
 | feat-029 | 機能追加 | render_fps_video.py の YAML 設定ファイル読み込み（長いCLIの省力化） | Closed |
+| feat-030 | 機能追加 | render_fps_video.py のチャンク並列レンダリング（feat-027 旧FR-006 の後続。単一/複数GPU対応の `--gpus`） | Closed |

@@ -205,7 +205,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
-| `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応） |
+| `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング） |
 
 ### camera_pose.py（カメラポーズ書き出し）
 
@@ -359,7 +359,7 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 事前準備: `uv sync --project matcher_lab` と LoFTR 重みのローカル配置（初回のみ `matcher_lab/loftr_smoke.py` の実行で自動取得）。実行時はオフラインで動作
 - 処理時間の目安: 1カメラ 3〜6分（RTX 5060 Ti 実測）
 
-### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029）
+### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030）
 
 リフトアップ済み3DキーポイントNPZ（`npz_to_c3d.py` 入力と同一フォーマット。`filter_npz.py` で平滑化済みを想定）から、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）でFPSカメラポーズを計算し、3DGS（PLY）をレンダリングして1本のMP4を生成する。Blender・C3D 工程は不要。頭部7点が `joint_names` にない NPZ はエラー終了する。
 
@@ -367,11 +367,16 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 内部パラメータは Calib_scene.toml 型 TOML から `--camera` で選択（ピンホール。歪み係数は無視。width/height は偶数必須）
 - 頭部7点に NaN があるフレームと縮退フレームは黒画面で出力し、タイムライン（動画時刻=実時刻）を維持する
 - チャンク（既定10000フレーム）単位の区間MP4で生成して最後に連結。中断後は同じコマンドの再実行で完成済みチャンクをスキップして再開（破損チャンクは ffprobe 検査で検出して作り直し。パラメータ変更時はエラー、`--overwrite` で作り直し）
+- `--gpus` でチャンクを複数ワーカープロセスに動的分配して並列レンダリング（feat-030）。カンマ区切りリストの要素数=ワーカー数、各要素=そのワーカーのGPU ID（同一IDの繰り返しで同一GPUに複数ワーカー可）。未指定なら従来どおり直列。直列⇔並列をまたぐ再開可。ワーカー失敗時は即時中止（完成済みチャンクは保持され再実行で再開）
 
 ```bash
 # MP4 生成
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py data/<PLY> data/<NPZ> \
     --toml data/Calib_FPSCamera.toml --camera FPSCamera --fps 30
+
+# 並列レンダリング（feat-030。例: GPU 0 に2ワーカー。単一GPUで実測 約1.47倍）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py data/<PLY> data/<NPZ> \
+    --toml data/Calib_FPSCamera.toml --camera FPSCamera --fps 30 --gpus 0,0
 
 # 設定YAMLで実行（feat-029。CLI 指定が YAML を上書き）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py --config data/run_fps.yaml
@@ -386,7 +391,8 @@ uv run python render_fps_video.py data/<PLY> data/<NPZ> --toml <TOML> --camera <
 | `--camera` | （必須※) | TOML 内のカメラ名 |
 | `--fps` | （必須※） | フレームレート（NPZに記録がないため必須） |
 | `--output` | `<NPZ名>_fps.mp4` | 最終MP4パス（NPZと同ディレクトリ） |
-| `--gpu` | `0` | 使用GPU ID（単一） |
+| `--gpu` | `0` | 直列モードで使用するGPU ID（単一。`--gpus` と併用不可） |
+| `--gpus` | なし | 並列モード。ワーカーのGPU IDリスト（カンマ区切り、要素数=ワーカー数。例 `0,0`=GPU 0 に2ワーカー、`0,1,2`=3GPUに1ワーカーずつ。MP4モード専用、`--gpu` と併用不可） |
 | `--chunk-size` | `10000` | チャンクのフレーム数（再開の単位） |
 | `--crf` / `--preset` | `18` / `medium` | libx264 エンコード設定 |
 | `--overwrite` | OFF | チャンクディレクトリを削除して作り直す |
@@ -404,6 +410,7 @@ toml: data/Calib_FPSCamera.toml
 camera: FPSCamera
 fps: 30
 output: data/session001_fps.mp4
+# gpus: 0,0    # 並列レンダリング（feat-030。gpu キーとは併用不可）
 ```
 
 ## テスト
