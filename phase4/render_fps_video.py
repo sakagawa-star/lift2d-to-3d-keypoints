@@ -551,6 +551,71 @@ def format_render_average(n_rendered: int, render_seconds: float) -> str:
     return f"{render_seconds / n_rendered:.3f}秒/フレーム"
 
 
+# === feat-031: 情報ファイル ===
+
+def info_file_path(output_path: str) -> str:
+    """最終MP4パスから情報ファイルパスを導出する。
+
+    例: /a/b/test_fps.mp4 → /a/b/test_fps_info.txt
+    """
+    return os.path.splitext(output_path)[0] + "_info.txt"
+
+
+def format_frame_ranges(fids: list[int]) -> str:
+    """昇順の frame_id リストを連続区間圧縮の文字列にする。
+
+    連続する番号は「始点-終点」、単独の番号は単独表記、", " 区切り。
+    空リストは「なし」を返す。
+    例: [1200..1239, 35001, 47800..47989] → "1200-1239, 35001, 47800-47989"
+        [5] → "5" / [] → "なし"
+    """
+    if not fids:
+        return "なし"
+
+    ranges: list[str] = []
+    start = fids[0]
+    end = fids[0]
+    for f in fids[1:]:
+        if f == end + 1:
+            end = f
+            continue
+        ranges.append(f"{start}" if start == end else f"{start}-{end}")
+        start = end = f
+    ranges.append(f"{start}" if start == end else f"{start}-{end}")
+    return ", ".join(ranges)
+
+
+def build_info_text(video_name: str, elapsed_sec: float, render_avg: str,
+                    total_frames: int, fps: float, nan_fids: list[int],
+                    degen_fids: list[int], width: int, height: int) -> str:
+    """情報ファイルの本文（10行、末尾改行あり、UTF-8想定）を生成する。"""
+    lines = [
+        f"動画ファイル: {video_name}",
+        f"総所要時間: {elapsed_sec:.1f}秒",
+        f"描画フレーム平均: {render_avg}",
+        f"総フレーム数: {total_frames}",
+        f"フレームレート: {fps}",
+        f"NaN黒フレーム数: {len(nan_fids)}",
+        f"NaN黒フレーム番号: {format_frame_ranges(nan_fids)}",
+        f"縮退黒フレーム数: {len(degen_fids)}",
+        f"縮退黒フレーム番号: {format_frame_ranges(degen_fids)}",
+        f"解像度: {width}x{height}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_info_file(path: str, text: str) -> None:
+    """text を UTF-8 で path に耐久書き出しする（.tmp に書いて durable_replace）。
+
+    失敗時は OSError を送出する（呼び出し元で処理）。
+    """
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+    durable_replace(tmp_path, path)
+
+
 # === CLI引数の型検証 ===
 
 def _positive_float(value: str) -> float:
@@ -1089,7 +1154,8 @@ def _run_parallel_chunks(args, chunks, skip_indices, viewmats, valid, config,
 
 
 def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndarray,
-                  intrinsics: dict, viewmats: np.ndarray, valid: np.ndarray) -> int:
+                  intrinsics: dict, viewmats: np.ndarray, valid: np.ndarray,
+                  nan_fids: list[int], degen_fids: list[int]) -> int:
     """FR-005/FR-007/FR-008: チャンク分割・区間MP4レンダリング・再開・連結の本体処理。"""
     F = len(frame_ids)
     width, height = intrinsics["width"], intrinsics["height"]
@@ -1231,6 +1297,19 @@ def _run_mp4_mode(args: argparse.Namespace, output_path: str, frame_ids: np.ndar
         f"描画フレーム平均 {format_render_average(total_rendered, total_render_sec)}"
     )
     print(f"最終MP4: {output_path}（{F} フレーム）")
+
+    info_path = info_file_path(output_path)
+    text = build_info_text(
+        os.path.basename(output_path), elapsed,
+        format_render_average(total_rendered, total_render_sec),
+        F, args.fps, nan_fids, degen_fids, width, height,
+    )
+    try:
+        write_info_file(info_path, text)
+    except OSError as e:
+        print(f"エラー: 情報ファイルの書き出しに失敗しました: {e}", file=sys.stderr)
+        return 1
+    print(f"情報ファイル: {info_path}")
     return 0
 
 
@@ -1351,6 +1430,9 @@ def main(argv=None) -> int:
     n_degen = F - n_valid - n_nan
     print(f"有効フレーム: {n_valid} / {F}（NaN欠損: {n_nan}, 縮退: {n_degen}）")
 
+    nan_fids = [int(f) for f in frame_ids[~finite_mask]]
+    degen_fids = [int(f) for f in frame_ids[finite_mask & ~valid]]
+
     for i, reason in invalid_reasons:
         print(f"警告: frame_id {int(frame_ids[i])}: {reason}", file=sys.stderr)
 
@@ -1360,7 +1442,9 @@ def main(argv=None) -> int:
     if still_mode:
         return _run_still_mode(args, frame_ids, intrinsics, viewmats, valid)
 
-    return _run_mp4_mode(args, output_path, frame_ids, intrinsics, viewmats, valid)
+    return _run_mp4_mode(
+        args, output_path, frame_ids, intrinsics, viewmats, valid, nan_fids, degen_fids
+    )
 
 
 if __name__ == "__main__":

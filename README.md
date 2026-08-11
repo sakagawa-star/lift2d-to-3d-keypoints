@@ -359,7 +359,7 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 事前準備: `uv sync --project matcher_lab` と LoFTR 重みのローカル配置（初回のみ `matcher_lab/loftr_smoke.py` の実行で自動取得）。実行時はオフラインで動作
 - 処理時間の目安: 1カメラ 3〜6分（RTX 5060 Ti 実測）
 
-### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030）
+### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030/031）
 
 リフトアップ済み3DキーポイントNPZ（`npz_to_c3d.py` 入力と同一フォーマット。`filter_npz.py` で平滑化済みを想定）から、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）でFPSカメラポーズを計算し、3DGS（PLY）をレンダリングして1本のMP4を生成する。Blender・C3D 工程は不要。頭部7点が `joint_names` にない NPZ はエラー終了する。
 
@@ -368,6 +368,7 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 頭部7点に NaN があるフレームと縮退フレームは黒画面で出力し、タイムライン（動画時刻=実時刻）を維持する
 - チャンク（既定10000フレーム）単位の区間MP4で生成して最後に連結。中断後は同じコマンドの再実行で完成済みチャンクをスキップして再開（破損チャンクは ffprobe 検査で検出して作り直し。パラメータ変更時はエラー、`--overwrite` で作り直し）
 - `--gpus` でチャンクを複数ワーカープロセスに動的分配して並列レンダリング（feat-030）。カンマ区切りリストの要素数=ワーカー数、各要素=そのワーカーのGPU ID（同一IDの繰り返しで同一GPUに複数ワーカー可）。未指定なら従来どおり直列。直列⇔並列をまたぐ再開可。ワーカー失敗時は即時中止（完成済みチャンクは保持され再実行で再開）
+- MP4 生成成功時に `<MP4名>_info.txt`（例: `test_fps.mp4` → `test_fps_info.txt`）を自動保存（feat-031）。記載: 動画ファイル名・総所要時間・描画フレーム平均・総フレーム数・フレームレート・NaN黒フレーム数/番号・縮退黒フレーム数/番号・解像度。黒フレーム番号は frame_id 基準の連続区間圧縮（0件は `なし`）
 
 ```bash
 # MP4 生成
