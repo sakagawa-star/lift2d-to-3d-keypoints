@@ -42,3 +42,4 @@
 | feat-029 | 機能追加 | render_fps_video.py の YAML 設定ファイル読み込み（長いCLIの省力化） | Closed |
 | feat-030 | 機能追加 | render_fps_video.py のチャンク並列レンダリング（feat-027 旧FR-006 の後続。単一/複数GPU対応の `--gpus`） | Closed |
 | feat-031 | 機能追加 | render_fps_video.py レンダリング情報テキストの自動保存（`<MP4名>_info.txt`） | Closed |
+| feat-032 | 機能追加 | render_keypoints.py の NPZ 入力対応（拡張子判別、C3D と併存） | Closed |

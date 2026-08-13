@@ -107,7 +107,7 @@ lift2d-to-3d-keypoints/
 │   ├── camera_pose.py                 # Blenderからカメラポーズを書き出すスクリプト
 │   ├── fps_camera_pose.py             # FPS頭部追従カメラのポーズ書き出し（ヘッドレスで向きを計算・内蔵。feat-019）
 │   ├── render.py                      # バッチレンダリングスクリプト
-│   ├── render_keypoints.py            # 3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容、--no-png でMP4のみ出力、--no-keypoints/--distort で歪み対応静止画モード。feat-015/016/017/021/022/024）
+│   ├── render_keypoints.py            # 3DGSレンダリング＋人体キーポイント重ね描き（オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容、キーポイント入力は C3D/NPZ 両対応〔拡張子 .npz で判別、pnp_ok は無視して全フレーム描画〕、--no-png でMP4のみ出力、--no-keypoints/--distort で歪み対応静止画モード。feat-015/016/017/021/022/024/032）
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   ├── filter_npz.py                  # NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要、NaN区間維持・追加キー無加工コピー。feat-028）

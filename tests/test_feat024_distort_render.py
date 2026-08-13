@@ -84,7 +84,7 @@ class TestValidation:
             main(["a.ply", toml, "c.c3d", "--camera", "camA", "--no-keypoints"])
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
-        assert "c3d_path" in err
+        assert "keypoints_path" in err
 
     @pytest.mark.parametrize("extra_args,opt_name", [
         (["--mp4"], "--mp4"),

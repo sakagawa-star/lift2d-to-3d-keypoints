@@ -2,6 +2,14 @@
 
 ## リリース履歴
 
+### 2026-08-13
+
+- **feat-032**: render_keypoints.py の NPZ 入力対応
+  - キーポイント入力として C3D に加え NPZ（`x3d_world` world座標[m]、`npz_to_c3d.py` 入力と同一フォーマット）を直接読み込めるようにした。拡張子 `.npz`（大小無視）で自動判別。`npz_to_c3d.py` の `load_npz` / `world_to_c3d_raw` を再利用して C3D raw(mm) に変換し、既存パイプラインへ無変更で合流（往復変換は恒等、feat-018 で確立）。NPZ→C3D の事前変換工程が不要に
+  - `pnp_ok` は参照せず全フレーム描画（有効性は座標の有限性のみで判定、NaN 関節は描画スキップ。ユーザー決定 2026-08-13）。フレーム番号は NPZ の絶対 `frame_ids`（連番PNG名・`--start-frame`/`--end-frame` とも）。NPZ はレート情報が無いため `--mp4-fps` 未指定時は fps=30 + 警告
+  - 位置引数 `c3d_path` を `keypoints_path` に改名。NPZ 読み込み例外の正規化（zip 破損・切り詰め等も終了コード1）と、C3D 経路を含むファイル不存在時のメッセージ化（トレースバック廃止）
+  - テスト: `tests/test_feat032_npz_input.py` 新規17件（11項目、異常系7ケース parametrize。全体回帰 404 passed / 1 skipped）。実データ（session001 300フレーム NPZ、22/28マーカー）で MP4 生成を確認。Codex レビュー2回で高・中ゼロ収束（codex-01〜02）。実装は Sonnet サブエージェント委任。手動テスト合格（2026-08-13）
+
 ### 2026-08-11
 
 - **feat-031**: render_fps_video.py レンダリング情報テキストの自動保存

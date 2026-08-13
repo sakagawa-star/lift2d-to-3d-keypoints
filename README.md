@@ -301,15 +301,21 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 
 2つのモードがある。
 
-**動画モード**（`c3d_path` を渡す）: キャリブTOMLのカメラで3DGSをレンダリングし、C3Dの人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容）をオクルージョン考慮で全フレーム重ね描きする。出力は連番PNG（`frame_<C3Dフレーム番号:06d>.png`）と `--mp4` 指定時のMP4。
+**動画モード**（`keypoints_path` を渡す）: キャリブTOMLのカメラで3DGSをレンダリングし、人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容）をオクルージョン考慮で全フレーム重ね描きする。キーポイント入力は **C3D と NPZ の両対応**（feat-032。拡張子 `.npz`〔大小無視〕で NPZ と判別、それ以外は C3D）。NPZ は `npz_to_c3d.py` 入力と同一フォーマット（`x3d_world` world座標[m]）を直接読むため事前変換は不要。NPZ の `pnp_ok` は参照せず全フレーム描画する（NaN の関節のみ描画スキップ）。出力は連番PNG（`frame_<フレーム番号:06d>.png`。フレーム番号は C3D では frame_no、NPZ では絶対 `frame_ids`）と `--mp4` 指定時のMP4。
 
 ```bash
+# C3D 入力
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/Blender/keypoints.c3d \
     --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+
+# NPZ 入力（拡張子を .npz にするだけ。それ以外のオプションは同一）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/keypoints.npz \
+    --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
 ```
 
-**静止画モード**（`--no-keypoints`。`c3d_path` は省略必須）: 3DGS背景のみの `still_<カメラ名>.png` を1枚出力する（再実行時は上書き）。`--distort` を付けるとTOMLの歪み係数（長さ4/5/8対応）で歪みモデルレンダリングになり、`estimate_camera_params.py` の推定結果をGT実写と視覚比較する用途に使う。
+**静止画モード**（`--no-keypoints`。`keypoints_path` は省略必須）: 3DGS背景のみの `still_<カメラ名>.png` を1枚出力する（再実行時は上書き）。`--distort` を付けるとTOMLの歪み係数（長さ4/5/8対応）で歪みモデルレンダリングになり、`estimate_camera_params.py` の推定結果をGT実写と視覚比較する用途に使う。
 
 ```bash
 # ピンホール静止画
@@ -329,13 +335,13 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
 | `--near-plane` | `0.1` | nearクリップ距離[m]。`0.01` だとカメラ至近のfloaterで黒い靄になるため `0.5` 推奨 | 両方 |
 | `--output-dir` | `./data/keypoints_<カメラ名>` | 出力ディレクトリ | 両方 |
 | `--background` | `0 0 0` | 背景色 RGB（0-1、3値） | 両方 |
-| `--no-keypoints` | OFF | 静止画モード（`c3d_path` 省略必須） | — |
+| `--no-keypoints` | OFF | 静止画モード（`keypoints_path` 省略必須） | — |
 | `--distort` | OFF | TOMLの歪み係数で歪みレンダリング（gsplat 3DGUT経路） | 静止画のみ |
 | `--no-occlusion` | OFF | 深度によるキーポイント隠蔽を無効化（比較用） | 動画のみ |
 | `--occlusion-margin` | `0.05` | オクルージョン判定の深度マージン[m] | 動画のみ |
-| `--start-frame` / `--end-frame` | なし | C3Dフレーム番号の範囲（両端含む）。1フレームだけ出すなら両方に同じ値 | 動画のみ |
-| `--mp4` | OFF | MP4も出力（fps既定はC3D rate） | 動画のみ |
-| `--mp4-fps` | C3D rate | MP4フレームレート（小数可） | 動画のみ |
+| `--start-frame` / `--end-frame` | なし | フレーム番号の範囲（両端含む。C3D は frame_no、NPZ は絶対 `frame_ids`）。1フレームだけ出すなら両方に同じ値 | 動画のみ |
+| `--mp4` | OFF | MP4も出力（fps既定はC3D rate、NPZはレート情報が無いため30） | 動画のみ |
+| `--mp4-fps` | C3D rate（NPZは30） | MP4フレームレート（小数可） | 動画のみ |
 | `--no-png` | OFF | 連番PNG保存をスキップしMP4のみ出力（`--mp4` 併用必須。数万フレームで大幅高速化） | 動画のみ |
 
 静止画モードで動画専用オプションを指定するとエラー（終了コード2）になる。

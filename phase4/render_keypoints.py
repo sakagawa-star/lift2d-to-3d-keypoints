@@ -11,14 +11,17 @@
 入力（Blenderを経由せず元データを直読み）:
   - PLY : LCC Studio製3DGS（ネイティブ座標＝キャリブレーション座標、Z-up・メートル）
   - TOML: Pose2Simキャリブ（OpenCV規約 world-to-camera、複数カメラ）
-  - C3D : 人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、mm。
-          C3Dに無い既知マーカーは描画スキップ＝欠損許容。全フレーム使用）
+  - C3D または NPZ: 人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー。
+          拡張子 .npz で NPZ、それ以外は C3D と判別。C3D はmm、NPZ は x3d_world（world座標[m]）。
+          入力に無い既知マーカーは描画スキップ＝欠損許容。全フレーム使用）
 
 実行は phase4 venv で行う（torch/gsplat が必要）:
   TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
       data/Blender/point_cloud.ply data/Blender/Config_scene.toml \\
       data/Blender/keypoints.c3d \\
       --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+
+  NPZ を渡す場合は拡張子を .npz にするだけでよい（例: data/Blender/keypoints.npz）
 
 1フレームだけ確認したい場合は --start-frame N --end-frame N で範囲を1枚に絞る。
 """
@@ -286,6 +289,51 @@ def load_c3d_all_frames(c3d_path: str) -> tuple[list[str], list[dict], float]:
     if not frames_data:
         raise ValueError(f"C3Dにフレームがありません: {c3d_path}")
     return labels, frames_data, point_rate
+
+
+def load_npz_all_frames(npz_path: str) -> tuple[list[str], list[dict], float]:
+    """NPZ（リフトアップ済み3Dキーポイント）を読み込み、全フレームを (labels, frames_data, point_rate) にする。
+
+    `npz_to_c3d.load_npz` / `npz_to_c3d.world_to_c3d_raw` を再利用し、world座標[m]を
+    C3D raw座標(mm) に変換して frames_data を構築する（既存パイプラインとの接続、FR-003）。
+    residual は座標の有限性から合成する（NPZに residual 相当の情報が無いため、FR-004）。
+    `pnp_ok` は参照しない（全フレーム描画、ユーザー決定 2026-08-13）。
+
+    Args:
+        npz_path: NPZファイルパス
+
+    Returns:
+        labels:      関節名リスト（NPZ の joint_names）
+        frames_data: フレームごとの dict のリスト。各要素:
+            {"frame_no": int(frame_ids[i]), "data": (n_markers,3) float64 mm,
+             "residual": (n_markers,) float64}（residual < 0 は無効サンプル）
+        point_rate:  0.0 固定（NPZ にレート情報が無いため）
+
+    Raises:
+        ValueError: フレームが0件、または NPZ の検証に失敗したとき
+        FileNotFoundError: ファイルが存在しないとき
+    """
+    from npz_to_c3d import load_npz, world_to_c3d_raw  # 関数内 import（既存流儀に合わせる）
+
+    try:
+        x3d_world, frame_ids, joint_names = load_npz(npz_path)
+    except (ValueError, FileNotFoundError):
+        raise  # そのまま main で捕捉（メッセージ流用）
+    except Exception as e:  # zip破損・EOFError・pickle系等を正規化
+        raise ValueError(f"NPZファイルを読み込めません: {npz_path}: {e}") from e
+
+    if x3d_world.shape[0] == 0:
+        raise ValueError(f"NPZにフレームがありません: {npz_path}")
+
+    raw = world_to_c3d_raw(x3d_world)              # (F, J, 3) float64 mm
+    finite = np.isfinite(raw).all(axis=-1)          # (F, J) bool
+    residuals = np.where(finite, 0.0, -1.0)         # (F, J) float64
+
+    frames_data = [
+        {"frame_no": int(fid), "data": raw[i], "residual": residuals[i]}
+        for i, fid in enumerate(frame_ids)
+    ]
+    return joint_names, frames_data, 0.0
 
 
 def c3d_to_calib(points_mm: np.ndarray) -> np.ndarray:
@@ -562,9 +610,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("ply_path", help="3DGS PLYファイルパス")
     parser.add_argument("toml_path", help="キャリブレーションTOMLパス")
-    parser.add_argument("c3d_path", nargs="?", default=None,
-                        help="人体キーポイントC3Dパス（Halpe26 + Spine/Thorax の既知28マーカー。"
-                             "欠損許容、全フレームを使用。--no-keypoints 時は省略）")
+    parser.add_argument("keypoints_path", nargs="?", default=None,
+                        help="人体キーポイントファイルパス（C3D または NPZ。拡張子 .npz で NPZ と"
+                             "判別。Halpe26 + Spine/Thorax の既知28マーカー、欠損許容、"
+                             "全フレームを使用。--no-keypoints 時は省略）")
     parser.add_argument("--camera", required=True, help="TOML内の対象カメラ名")
     parser.add_argument("--near-plane", type=float, default=0.1,
                         help="near クリップ距離[m]（floater除去用、default: 0.1）")
@@ -577,18 +626,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--occlusion-margin", type=float, default=None,
                         help=f"深度マージン[m]（3DGSよりこの値以上奥なら隠す、default: {OCCLUSION_MARGIN}）")
     parser.add_argument("--start-frame", type=int, default=None,
-                        help="描画開始C3Dフレーム番号（この番号を含む、省略時は最小フレーム）")
+                        help="描画開始フレーム番号（C3D frame_no / NPZ frame_ids。"
+                             "この番号を含む、省略時は最小フレーム）")
     parser.add_argument("--end-frame", type=int, default=None,
-                        help="描画終了C3Dフレーム番号（この番号を含む、省略時は最大フレーム）")
+                        help="描画終了フレーム番号（同、省略時は最大フレーム）")
     parser.add_argument("--mp4", action="store_true",
                         help="連番PNGに加えてMP4動画も出力する")
     parser.add_argument("--mp4-fps", type=float, default=None,
-                        help="MP4フレームレート（小数可、default: C3D rate）")
+                        help="MP4フレームレート（小数可、default: C3D rate。"
+                             "NPZ はレート情報が無いため 30）")
     parser.add_argument("--no-png", action="store_true",
                         help="連番PNG保存をスキップしMP4のみ出力する（--mp4 と併用必須）")
     parser.add_argument("--no-keypoints", action="store_true",
                         help="キーポイント描画をスキップし3DGS背景のみの静止画1枚を出力"
-                             "（c3d_path 省略必須）")
+                             "（keypoints_path 省略必須）")
     parser.add_argument("--distort", action="store_true",
                         help="TOMLの歪み係数で歪みモデルレンダリング（--no-keypoints 専用）")
     return parser
@@ -639,10 +690,11 @@ def main(argv=None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    # --no-keypoints / c3d_path / --distort の組み合わせ検証（重い処理前、--no-png単独チェックより前）
+    # --no-keypoints / keypoints_path / --distort の組み合わせ検証（重い処理前、--no-png単独チェックより前）
     if args.no_keypoints:
-        if args.c3d_path is not None:
-            parser.error("--no-keypoints 指定時は c3d_path を渡せません（静止画モードは C3D 不要）")
+        if args.keypoints_path is not None:
+            parser.error("--no-keypoints 指定時は keypoints_path を渡せません"
+                         "（静止画モードはキーポイント入力不要）")
         forbidden = [("--mp4", args.mp4), ("--mp4-fps", args.mp4_fps is not None),
                      ("--no-png", args.no_png),
                      ("--start-frame", args.start_frame is not None),
@@ -653,8 +705,8 @@ def main(argv=None) -> int:
             if given:
                 parser.error(f"--no-keypoints 指定時は {name} は使用できません")
     else:
-        if args.c3d_path is None:
-            parser.error("c3d_path を省略する場合は --no-keypoints を指定してください")
+        if args.keypoints_path is None:
+            parser.error("keypoints_path を省略する場合は --no-keypoints を指定してください")
         if args.distort:
             parser.error("--distort は --no-keypoints と併用してください（動画モードは未対応）")
 
@@ -677,17 +729,22 @@ def main(argv=None) -> int:
     if args.no_keypoints:
         return _run_still_mode(args, cam)
 
-    # C3Dロード（全フレーム）・既知マーカー存在チェック（重いPLY/torchロード前に検証）
-    print(f"C3D読み込み中（全フレーム）: {args.c3d_path}")
+    # キーポイントロード（全フレーム）・既知マーカー存在チェック（重いPLY/torchロード前に検証）
+    is_npz = args.keypoints_path.lower().endswith(".npz")
+    fmt = "NPZ" if is_npz else "C3D"
+    print(f"キーポイント読み込み中（{fmt}, 全フレーム）: {args.keypoints_path}")
     try:
-        labels, frames_data, point_rate = load_c3d_all_frames(args.c3d_path)
-    except ValueError as e:
+        if is_npz:
+            labels, frames_data, point_rate = load_npz_all_frames(args.keypoints_path)
+        else:
+            labels, frames_data, point_rate = load_c3d_all_frames(args.keypoints_path)
+    except (ValueError, FileNotFoundError) as e:
         print(e, file=sys.stderr)
         return 1
-    # マーカー構成はC3D全体で固定。既知マーカー0個なら描画対象がないため早期終了する
+    # マーカー構成は入力全体で固定。既知マーカー0個なら描画対象がないため早期終了する
     present = {name for name in KEYPOINT_NAMES if name in labels}
     if not present:
-        print(f"C3Dに既知マーカーが1つもありません（labels: {', '.join(labels)}）",
+        print(f"{fmt}に既知マーカーが1つもありません（labels: {', '.join(labels)}）",
               file=sys.stderr)
         return 1
     missing = [name for name in KEYPOINT_NAMES if name not in present]
@@ -696,9 +753,9 @@ def main(argv=None) -> int:
         print(f"欠損マーカー（描画スキップ）: {', '.join(missing)}")
     skeleton = build_skeleton(present)
     total_frames = len(frames_data)
-    print(f"C3D: {total_frames} フレーム, rate={point_rate} Hz")
+    print(f"{fmt}: {total_frames} フレーム, rate={point_rate} Hz")
 
-    # フレーム範囲フィルタ（C3Dフレーム番号ベース、両端含む。render.py と同方式）
+    # フレーム範囲フィルタ（入力フレーム番号ベース、両端含む。render.py と同方式）
     if args.start_frame is not None or args.end_frame is not None:
         start = args.start_frame if args.start_frame is not None else -float("inf")
         end = args.end_frame if args.end_frame is not None else float("inf")
@@ -747,7 +804,7 @@ def main(argv=None) -> int:
             fps = point_rate
         else:
             fps = 30.0
-            print("警告: C3D rate を取得できないため MP4 fps=30 を使用", file=sys.stderr)
+            print("警告: 入力にフレームレート情報がないため MP4 fps=30 を使用", file=sys.stderr)
         try:
             ffmpeg_proc, mp4_path = start_ffmpeg(
                 output_dir, cam["width"], cam["height"], fps
