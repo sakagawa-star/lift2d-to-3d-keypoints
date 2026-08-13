@@ -24,6 +24,9 @@
   NPZ を渡す場合は拡張子を .npz にするだけでよい（例: data/Blender/keypoints.npz）
 
 1フレームだけ確認したい場合は --start-frame N --end-frame N で範囲を1枚に絞る。
+
+設定YAML（--config）でオプションをまとめて指定することもできる（feat-033）:
+  TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py --config run_keypoints.yaml
 """
 
 import argparse
@@ -34,6 +37,8 @@ import time
 import cv2
 import numpy as np
 import tomli
+
+from render_fps_video import load_yaml_flat, _yaml_bool, parse_config_yaml  # noqa: F401
 
 
 # === キーポイント定数（feat-013 design.md より復元、feat-021 で欠損許容に拡張） ===
@@ -602,19 +607,47 @@ def start_ffmpeg(output_dir: str, width: int, height: int, fps: float):
     return proc, mp4_path
 
 
+# === feat-033: 設定YAML（--config） ===
+
+def _yaml_floats3(value: str) -> list[float]:
+    """設定YAMLの background 値（スペース区切り float 3個）を変換する。"""
+    parts = value.split()
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(
+            f"スペース区切りの数値3個である必要があります: {value}")
+    try:
+        return [float(p) for p in parts]
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"数値に変換できません: {value}") from e
+
+
+CONFIG_CONVERTERS = {
+    "ply_path": str, "toml_path": str, "keypoints_path": str,
+    "camera": str, "output_dir": str,
+    "near_plane": float, "occlusion_margin": float, "mp4_fps": float,
+    "start_frame": int, "end_frame": int,
+    "background": _yaml_floats3,
+    "no_occlusion": _yaml_bool, "mp4": _yaml_bool, "no_png": _yaml_bool,
+    "no_keypoints": _yaml_bool, "distort": _yaml_bool,
+}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="ピンホール3DGSレンダリングへの人体キーポイント重ね描き（オクルージョン考慮、連番PNG/MP4出力）",
         # 前方一致の短縮を禁止。廃止した --output が --output-dir に化けるのを防ぎ、明示的にエラーにする
         allow_abbrev=False,
     )
-    parser.add_argument("ply_path", help="3DGS PLYファイルパス")
-    parser.add_argument("toml_path", help="キャリブレーションTOMLパス")
+    parser.add_argument("ply_path", nargs="?", default=None,
+                        help="3DGS PLYファイルパス（--config でも指定可）")
+    parser.add_argument("toml_path", nargs="?", default=None,
+                        help="キャリブレーションTOMLパス（--config でも指定可）")
     parser.add_argument("keypoints_path", nargs="?", default=None,
                         help="人体キーポイントファイルパス（C3D または NPZ。拡張子 .npz で NPZ と"
                              "判別。Halpe26 + Spine/Thorax の既知28マーカー、欠損許容、"
-                             "全フレームを使用。--no-keypoints 時は省略）")
-    parser.add_argument("--camera", required=True, help="TOML内の対象カメラ名")
+                             "全フレームを使用。--no-keypoints 時は省略）（--config でも指定可）")
+    parser.add_argument("--camera", default=None,
+                        help="TOML内の対象カメラ名（--config でも指定可）")
     parser.add_argument("--near-plane", type=float, default=0.1,
                         help="near クリップ距離[m]（floater除去用、default: 0.1）")
     parser.add_argument("--output-dir", default=None,
@@ -642,7 +675,50 @@ def _build_parser() -> argparse.ArgumentParser:
                              "（keypoints_path 省略必須）")
     parser.add_argument("--distort", action="store_true",
                         help="TOMLの歪み係数で歪みモデルレンダリング（--no-keypoints 専用）")
+    parser.add_argument("--config", default=None,
+                        help="設定YAML（フラット key: value）。優先順位は "
+                             "CLI > 設定YAML > デフォルト。フラグ系（--no-occlusion/--mp4/"
+                             "--no-png/--no-keypoints/--distort）は CLI から true 方向のみ"
+                             "上書き可（設定YAMLの true を false に戻すには設定YAMLを編集する）")
     return parser
+
+
+def parse_args_with_config(
+    argv=None, parser: argparse.ArgumentParser | None = None
+) -> argparse.Namespace:
+    """--config と CLI 引数を統合してパースする（優先順位: CLI > 設定YAML > デフォルト）。
+
+    Args:
+        argv: コマンドライン引数（None ならsys.argv）。
+        parser: 使用するパーサー（None なら内部で _build_parser() を呼ぶ）。
+            main() は自作の parser を渡し、以降の parser.error 呼び出しで
+            同一のparserオブジェクトを使い続ける。
+
+    Returns:
+        統合・検証済みの argparse.Namespace。
+    """
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None)
+    pre_args, _ = pre_parser.parse_known_args(argv)
+
+    if parser is None:
+        parser = _build_parser()
+
+    if pre_args.config is not None:
+        defaults = parse_config_yaml(pre_args.config, parser, converters=CONFIG_CONVERTERS)
+        parser.set_defaults(**defaults)
+
+    args = parser.parse_args(argv)
+
+    required_dests = [
+        ("ply_path", "ply_path"), ("toml_path", "toml_path"), ("camera", "--camera"),
+    ]
+    missing = [label for dest, label in required_dests if getattr(args, dest) is None]
+    if missing:
+        parser.error(
+            f"必須項目が未指定です（CLIまたは--configで指定）: {', '.join(missing)}"
+        )
+    return args
 
 
 def _run_still_mode(args: argparse.Namespace, cam: dict) -> int:
@@ -688,7 +764,7 @@ def _run_still_mode(args: argparse.Namespace, cam: dict) -> int:
 
 def main(argv=None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parse_args_with_config(argv, parser)
 
     # --no-keypoints / keypoints_path / --distort の組み合わせ検証（重い処理前、--no-png単独チェックより前）
     if args.no_keypoints:

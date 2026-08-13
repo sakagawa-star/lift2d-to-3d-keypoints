@@ -343,8 +343,29 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
 | `--mp4` | OFF | MP4も出力（fps既定はC3D rate、NPZはレート情報が無いため30） | 動画のみ |
 | `--mp4-fps` | C3D rate（NPZは30） | MP4フレームレート（小数可） | 動画のみ |
 | `--no-png` | OFF | 連番PNG保存をスキップしMP4のみ出力（`--mp4` 併用必須。数万フレームで大幅高速化） | 動画のみ |
+| `--config` | なし | 設定YAML（フラット `key: value`。feat-029 と同方式）。優先順位は CLI 明示指定 > 設定YAML > 既定値 | 両方 |
 
 静止画モードで動画専用オプションを指定するとエラー（終了コード2）になる。
+
+**設定YAML（`--config`。feat-033）**: 位置引数を含む全オプションを YAML に書ける（設定キーは CLI オプション名のハイフンをアンダースコアに置換した名前。位置引数は `ply_path` / `toml_path` / `keypoints_path`）。必須項目（`ply_path` / `toml_path` / `camera`）は CLI か YAML のどちらかで指定すればよい。フラグ系（`no_occlusion` / `mp4` / `no_png` / `no_keypoints` / `distort`）は `true` / `false`（小文字のみ）で書き、CLI からは true 方向のみ上書き可（YAML の `true` を false に戻すには YAML を編集する）。`background` はスペース区切り3値。未知キー・型不正はキー名つきエラー（終了コード2）になる。
+
+```yaml
+# run_keypoints.yaml の例（プロジェクトルートから実行する場合のパス）
+ply_path: /home/sakagawa/data/PLY/HandaiHospital-20251024-01/point_cloud/iteration_100/point_cloud.ply
+toml_path: phase4/data/Blender/handai-hosp1_20251024.toml
+keypoints_path: phase4/data/session001_f145749_world300_filtered.npz
+camera: int_cam01_img
+near_plane: 0.5
+output_dir: phase4/data/keypoints_check
+mp4: true
+no_png: true
+```
+
+```bash
+# 設定YAMLのみで実行（一部だけCLIで上書きも可: 例 --mp4-fps 25）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/render_keypoints.py \
+    --config phase4/data/run_keypoints.yaml
+```
 
 ### refine_extrinsics.py（外部パラメータ精緻化。feat-026）
 

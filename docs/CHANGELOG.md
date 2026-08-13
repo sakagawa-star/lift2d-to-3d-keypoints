@@ -4,6 +4,11 @@
 
 ### 2026-08-13
 
+- **feat-033**: render_keypoints.py の YAML 設定ファイル読み込み
+  - `--config <YAML>` を追加。フラット `key: value` の簡易パーサー（feat-029 と同方式）で16キー（ply_path/toml_path/keypoints_path/camera/near_plane/output_dir/background/no_occlusion/occlusion_margin/start_frame/end_frame/mp4/mp4_fps/no_png/no_keypoints/distort）を読み込む。優先順位は CLI 明示指定 > 設定YAML > 既定値（フラグ系は CLI から true 方向のみ上書き可）。`background` はスペース区切り float 3個
+  - 汎用部品（`load_yaml_flat` / `_yaml_bool` / `parse_config_yaml`）は `render_fps_video.py` の feat-029 実装を import 再利用（`parse_config_yaml` に省略可能引数 `converters` を追加。省略時は従来挙動で feat-029 テスト無変更）。必須3項目（ply_path/toml_path/camera）は CLI か設定YAMLのどちらかで指定すればよく、統合後に検証する（欠落時のエラー文言は「必須項目が未指定です」形式に変更、終了コード2は維持）
+  - テスト: `tests/test_feat033_config_yaml.py` 新規21件（全体回帰 425 passed / 1 skipped、既存テストは無変更で全件パス）。実データで設定YAMLのみでの実行と `--mp4-fps 25` の CLI 上書きを確認。Codex レビュー2回で高・中ゼロ収束（codex-01〜02）。実装は Sonnet サブエージェント委任。手動テスト合格（2026-08-13）
+
 - **feat-032**: render_keypoints.py の NPZ 入力対応
   - キーポイント入力として C3D に加え NPZ（`x3d_world` world座標[m]、`npz_to_c3d.py` 入力と同一フォーマット）を直接読み込めるようにした。拡張子 `.npz`（大小無視）で自動判別。`npz_to_c3d.py` の `load_npz` / `world_to_c3d_raw` を再利用して C3D raw(mm) に変換し、既存パイプラインへ無変更で合流（往復変換は恒等、feat-018 で確立）。NPZ→C3D の事前変換工程が不要に
   - `pnp_ok` は参照せず全フレーム描画（有効性は座標の有限性のみで判定、NaN 関節は描画スキップ。ユーザー決定 2026-08-13）。フレーム番号は NPZ の絶対 `frame_ids`（連番PNG名・`--start-frame`/`--end-frame` とも）。NPZ はレート情報が無いため `--mp4-fps` 未指定時は fps=30 + 警告

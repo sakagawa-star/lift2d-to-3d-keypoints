@@ -730,17 +730,25 @@ CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
 }
 
 
-def parse_config_yaml(yaml_path: str, parser: argparse.ArgumentParser) -> dict:
+def parse_config_yaml(
+    yaml_path: str, parser: argparse.ArgumentParser, converters=None
+) -> dict:
     """設定YAMLを読み込み、キー検証・型変換して {dest名: 変換済み値} を返す。
 
     Args:
         yaml_path: 設定YAMLのパス。
         parser: エラー報告に使うパーサー（parser.error で usage + メッセージを
             stderr に出し終了コード2で終了する）。
+        converters: キー名→変換関数の辞書。省略時（None）は本モジュール自身の
+            CONFIG_CONVERTERS を使う（従来挙動と完全に同一）。呼び出し元
+            （例: render_keypoints.py）が自分の変換表を注入するための引数（feat-033）。
 
     Returns:
         {dest名: 変換済み値} の辞書（parser.set_defaults にそのまま渡せる）。
     """
+    if converters is None:
+        converters = CONFIG_CONVERTERS
+
     try:
         raw = load_yaml_flat(yaml_path)
     except OSError as e:
@@ -749,16 +757,16 @@ def parse_config_yaml(yaml_path: str, parser: argparse.ArgumentParser) -> dict:
     if "config" in raw:
         parser.error("設定YAMLに config キーは書けません（連鎖読み込み不可）")
 
-    unknown = [k for k in raw if k not in CONFIG_CONVERTERS]
+    unknown = [k for k in raw if k not in converters]
     if unknown:
         parser.error(
             f"設定YAMLに未知のキーがあります: {', '.join(unknown)}。"
-            f"有効なキー: {sorted(CONFIG_CONVERTERS)}"
+            f"有効なキー: {sorted(converters)}"
         )
 
     result: dict = {}
     for k, v in raw.items():
-        converter = CONFIG_CONVERTERS[k]
+        converter = converters[k]
         try:
             result[k] = converter(v)
         except (argparse.ArgumentTypeError, ValueError, TypeError) as e:
