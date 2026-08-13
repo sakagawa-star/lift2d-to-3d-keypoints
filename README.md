@@ -303,6 +303,8 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 
 **動画モード**（`keypoints_path` を渡す）: キャリブTOMLのカメラで3DGSをレンダリングし、人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容）をオクルージョン考慮で全フレーム重ね描きする。キーポイント入力は **C3D と NPZ の両対応**（feat-032。拡張子 `.npz`〔大小無視〕で NPZ と判別、それ以外は C3D）。NPZ は `npz_to_c3d.py` 入力と同一フォーマット（`x3d_world` world座標[m]）を直接読むため事前変換は不要。NPZ の `pnp_ok` は参照せず全フレーム描画する（NaN の関節のみ描画スキップ）。出力は連番PNG（`frame_<フレーム番号:06d>.png`。フレーム番号は C3D では frame_no、NPZ では絶対 `frame_ids`）と `--mp4` 指定時のMP4。
 
+`--fps-frustum` を付けると、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）から計算した FPSカメラ（一人称視点。`render_fps_video.py` と同一の数式、視点=両目中点）の**視錐台ワイヤフレーム**（マゼンタ、稜線4本+遠端矩形4辺）をオクルージョン考慮で重ね描きする（feat-034）。FOV は `--fps-camera` で指定した TOML カメラの K・解像度から決まり、`--fps-toml` で別TOMLファイルを指定できる（省略時は `toml_path` から検索）。奥行きは `--frustum-depth`（既定 0.5m）の固定打ち切り長。頭部7点がマーカー構成に無い入力はエラー、フレーム単位の欠損・縮退はそのフレームのみ視錐台を描かず継続する（終了時に描画フレーム数のサマリを表示）。
+
 ```bash
 # C3D 入力
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
@@ -313,6 +315,13 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/keypoints.npz \
     --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+
+# FPSカメラ視錐台ワイヤフレームつき（feat-034。FPSカメラは別TOMLから取得する例）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/keypoints.npz \
+    --camera cam41520554 --fps-frustum \
+    --fps-toml data/Calib_FPSCamera.toml --fps-camera FPSCamera \
+    --near-plane 0.5 --output-dir /tmp/keypoints --mp4
 ```
 
 **静止画モード**（`--no-keypoints`。`keypoints_path` は省略必須）: 3DGS背景のみの `still_<カメラ名>.png` を1枚出力する（再実行時は上書き）。`--distort` を付けるとTOMLの歪み係数（長さ4/5/8対応）で歪みモデルレンダリングになり、`estimate_camera_params.py` の推定結果をGT実写と視覚比較する用途に使う。
@@ -343,11 +352,15 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
 | `--mp4` | OFF | MP4も出力（fps既定はC3D rate、NPZはレート情報が無いため30） | 動画のみ |
 | `--mp4-fps` | C3D rate（NPZは30） | MP4フレームレート（小数可） | 動画のみ |
 | `--no-png` | OFF | 連番PNG保存をスキップしMP4のみ出力（`--mp4` 併用必須。数万フレームで大幅高速化） | 動画のみ |
+| `--fps-frustum` | OFF | FPSカメラ（頭部キーポイント由来）の視錐台ワイヤフレームをマゼンタで重ね描き（`--fps-camera` 必須） | 動画のみ |
+| `--fps-camera` | なし | 視錐台のFOVに使うTOML内カメラ名（`--fps-frustum` 専用） | 動画のみ |
+| `--fps-toml` | `toml_path` と同じ | `--fps-camera` を検索するTOMLファイル（`--fps-frustum` 専用） | 動画のみ |
+| `--frustum-depth` | `0.5` | 視錐台の奥行き[m]（`--fps-frustum` 専用。有限かつ0より大きい値のみ） | 動画のみ |
 | `--config` | なし | 設定YAML（フラット `key: value`。feat-029 と同方式）。優先順位は CLI 明示指定 > 設定YAML > 既定値 | 両方 |
 
 静止画モードで動画専用オプションを指定するとエラー（終了コード2）になる。
 
-**設定YAML（`--config`。feat-033）**: 位置引数を含む全オプションを YAML に書ける（設定キーは CLI オプション名のハイフンをアンダースコアに置換した名前。位置引数は `ply_path` / `toml_path` / `keypoints_path`）。必須項目（`ply_path` / `toml_path` / `camera`）は CLI か YAML のどちらかで指定すればよい。フラグ系（`no_occlusion` / `mp4` / `no_png` / `no_keypoints` / `distort`）は `true` / `false`（小文字のみ）で書き、CLI からは true 方向のみ上書き可（YAML の `true` を false に戻すには YAML を編集する）。`background` はスペース区切り3値。未知キー・型不正はキー名つきエラー（終了コード2）になる。
+**設定YAML（`--config`。feat-033）**: 位置引数を含む全オプションを YAML に書ける（設定キーは CLI オプション名のハイフンをアンダースコアに置換した名前。位置引数は `ply_path` / `toml_path` / `keypoints_path`）。必須項目（`ply_path` / `toml_path` / `camera`）は CLI か YAML のどちらかで指定すればよい。フラグ系（`no_occlusion` / `mp4` / `no_png` / `no_keypoints` / `distort` / `fps_frustum`）は `true` / `false`（小文字のみ）で書き、CLI からは true 方向のみ上書き可（YAML の `true` を false に戻すには YAML を編集する）。`background` はスペース区切り3値。未知キー・型不正はキー名つきエラー（終了コード2）になる。
 
 ```yaml
 # run_keypoints.yaml の例（プロジェクトルートから実行する場合のパス）
@@ -359,6 +372,10 @@ near_plane: 0.5
 output_dir: phase4/data/keypoints_check
 mp4: true
 no_png: true
+# FPS視錐台（feat-034。任意）
+fps_frustum: true
+fps_toml: phase4/data/Calib_FPSCamera.toml
+fps_camera: FPSCamera
 ```
 
 ```bash

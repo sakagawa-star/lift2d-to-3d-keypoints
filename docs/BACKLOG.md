@@ -44,3 +44,4 @@
 | feat-031 | 機能追加 | render_fps_video.py レンダリング情報テキストの自動保存（`<MP4名>_info.txt`） | Closed |
 | feat-032 | 機能追加 | render_keypoints.py の NPZ 入力対応（拡張子判別、C3D と併存） | Closed |
 | feat-033 | 機能追加 | render_keypoints.py の YAML 設定ファイル読み込み（--config、feat-029 の展開） | Closed |
+| feat-034 | 機能追加 | render_keypoints.py FPSカメラ視錐台ワイヤフレームの重ね描き（オクルージョン考慮） | Closed |

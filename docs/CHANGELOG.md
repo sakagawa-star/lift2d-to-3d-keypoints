@@ -4,6 +4,12 @@
 
 ### 2026-08-13
 
+- **feat-034**: render_keypoints.py FPSカメラ視錐台ワイヤフレームの重ね描き
+  - 動画モードに `--fps-frustum` を追加（オプトイン）。頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）から `render_fps_video.compute_fps_poses`（正本を import 再利用）でFPSカメラの c2w を全フレーム一括計算し、視錐台（視点=両目中点、稜線4本+遠端矩形4辺の8線分、マゼンタ）を既存ボーンと同じ部分隠蔽機構でオクルージョン考慮描画する（`--no-occlusion` に連動）。頭部点の欠損・縮退フレームは視錐台のみ非描画（スケルトンは従来どおり）で、開始時・終了時にサマリを表示
+  - FOV は `--fps-camera` で指定した TOML カメラの K・解像度から取得（錐台の形状は K に正確に従う）。奥行きは可視化上の打ち切り長で `--frustum-depth`（既定 0.5m、有限かつ 0 より大きい値のみ）。手動テストの指摘（要求ヒアリング漏れ）によるイテレーション1で `--fps-toml`（FPSカメラを検索する別TOMLファイルの指定。省略時は位置引数 toml_path と同じ＝後方互換）を追加
+  - 設定YAMLキー4個（`fps_frustum` / `fps_camera` / `fps_toml` / `frustum_depth`）を追加。`--fps-frustum` 未指定時の既定動作・出力は完全不変（既存テスト無変更で全件パス）
+  - テスト: `tests/test_feat034_fps_frustum.py` 新規29件（全体回帰 454 passed / 1 skipped）。実データ（session001）で 20/20 フレーム描画・別TOML経路・従来形の動作を確認。手動テストで「錐台頂点が右耳から出て見える」報告があり、数値診断で右耳マーカーが両目中点とほぼ同一画素に投影される見た目の偶然一致（実装は仕様どおり）と確認。Codex レビュー6回（初回分3回 + イテレーション1分3回）で高・中ゼロ収束（codex-01〜06）。実装は Sonnet サブエージェント委任。手動テスト合格（2026-08-13）
+
 - **feat-033**: render_keypoints.py の YAML 設定ファイル読み込み
   - `--config <YAML>` を追加。フラット `key: value` の簡易パーサー（feat-029 と同方式）で16キー（ply_path/toml_path/keypoints_path/camera/near_plane/output_dir/background/no_occlusion/occlusion_margin/start_frame/end_frame/mp4/mp4_fps/no_png/no_keypoints/distort）を読み込む。優先順位は CLI 明示指定 > 設定YAML > 既定値（フラグ系は CLI から true 方向のみ上書き可）。`background` はスペース区切り float 3個
   - 汎用部品（`load_yaml_flat` / `_yaml_bool` / `parse_config_yaml`）は `render_fps_video.py` の feat-029 実装を import 再利用（`parse_config_yaml` に省略可能引数 `converters` を追加。省略時は従来挙動で feat-029 テスト無変更）。必須3項目（ply_path/toml_path/camera）は CLI か設定YAMLのどちらかで指定すればよく、統合後に検証する（欠落時のエラー文言は「必須項目が未指定です」形式に変更、終了コード2は維持）

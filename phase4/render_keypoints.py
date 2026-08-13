@@ -27,6 +27,23 @@
 
 設定YAML（--config）でオプションをまとめて指定することもできる（feat-033）:
   TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py --config run_keypoints.yaml
+
+--fps-frustum 指定時は、頭部キーポイント由来のFPSカメラ（一人称視点）の視錐台ワイヤフレーム
+（マゼンタ、8線分）をオクルージョン考慮で重ね描きする。視錐台のFOVは --fps-camera で指定した
+TOML内カメラのK・解像度から、奥行きは --frustum-depth（default: 0.5m）から決まる。
+--fps-camera の検索先TOMLは既定で位置引数 toml_path と同じファイルだが、--fps-toml で
+別ファイルを指定できる（FPSカメラの内部パラメータが観察カメラと別TOMLにある場合。feat-034 イテレーション1）。
+動画モード専用（--no-keypoints の静止画モードでは使用不可）（feat-034）:
+  TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
+      data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/Blender/keypoints.npz \\
+      --camera cam41520554 --fps-frustum --fps-camera cam41520554 --frustum-depth 0.5 \\
+      --mp4 --output-dir data/keypoints_frustum
+
+  別TOMLからFPSカメラを取得する場合:
+  TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
+      data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/Blender/keypoints.npz \\
+      --camera cam41520554 --fps-frustum --fps-toml data/Blender/Config_fps.toml \\
+      --fps-camera fps_cam01 --mp4 --output-dir data/keypoints_frustum
 """
 
 import argparse
@@ -38,7 +55,9 @@ import cv2
 import numpy as np
 import tomli
 
-from render_fps_video import load_yaml_flat, _yaml_bool, parse_config_yaml  # noqa: F401
+from render_fps_video import (  # noqa: F401
+    load_yaml_flat, _yaml_bool, parse_config_yaml, compute_fps_poses, HEAD_JOINT_NAMES,
+)
 
 
 # === キーポイント定数（feat-013 design.md より復元、feat-021 で欠損許容に拡張） ===
@@ -73,6 +92,12 @@ BONE_SAMPLES = 24
 # オクルージョン判定
 OCCLUSION_MARGIN = 0.05   # [m] 3DGS深度ノイズ＋マーカーが体表より内側に埋まる分を吸収。これ以上奥なら隠す
 ALPHA_THRESH = 0.5        # 累積不透明度がこれ未満の画素は「3DGSなし」扱い（隠さない）。内部定数（CLI非公開）
+
+# FPSカメラ視錐台ワイヤフレーム（feat-034）
+FRUSTUM_COLOR = (255, 0, 255)   # マゼンタ (BGR)。スケルトンの赤/青/緑/黄と区別する
+FRUSTUM_DEPTH_DEFAULT = 0.5     # 錐台奥行きの既定値 [m]
+# 視錐台の8線分。頂点インデックス 0=視点(apex), 1..4=遠端4隅
+FRUSTUM_EDGES = [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (2, 3), (3, 4), (4, 1)]
 
 
 def load_cameras_toml(toml_path: str) -> dict[str, dict]:
@@ -556,6 +581,131 @@ def draw_overlay(
     return img
 
 
+# === feat-034: FPSカメラ視錐台ワイヤフレーム ===
+
+
+def collect_head_points(labels: list[str], frames_data: list[dict]) -> np.ndarray:
+    """全フレームの頭部7点をキャリブ座標で集める（FR-002）。
+
+    フレームごとに extract_keypoints() → c3d_to_calib() を適用する（フレームループと
+    同一経路。二重呼び出しになるが28点の辞書引きのみで無視できる軽さ）。
+    HEAD_JOINT_NAMES の各マーカーについて valid が False の点は座標を NaN に置き換える
+    （無効判定を compute_fps_poses() に一元化するため）。
+
+    Args:
+        labels: マーカー名リスト。
+        frames_data: フレーム範囲フィルタ後の list[dict]（frame_no/data/residual を持つ既存構造）。
+
+    Returns:
+        (F, 7, 3) float64。キャリブ座標[m]。第2軸の順序は HEAD_JOINT_NAMES と同一。
+    """
+    n_frames = len(frames_data)
+    head_pts = np.zeros((n_frames, len(HEAD_JOINT_NAMES), 3), dtype=np.float64)
+    for i, fr in enumerate(frames_data):
+        kpts_mm, valid = extract_keypoints(labels, fr["data"], fr["residual"])
+        kpts_calib = c3d_to_calib(kpts_mm)
+        for j, name in enumerate(HEAD_JOINT_NAMES):
+            idx = NAME_TO_IDX[name]
+            head_pts[i, j] = kpts_calib[idx] if valid[idx] else np.nan
+    return head_pts
+
+
+def compute_frustum_vertices(
+    c2w_b: np.ndarray, K_fps: np.ndarray, width: int, height: int, depth: float
+) -> np.ndarray:
+    """FPSカメラの c2w_b から視錐台の5頂点（キャリブ座標）を全フレーム一括で計算する。
+
+    画像4隅（ピクセル座標 (0,0), (W,0), (W,H), (0,H)。左上から時計回り）への光線方向を
+    K_fps から求め、Blender→OpenCV変換（c2w_blender_to_viewmats と同一式）で world 方向に
+    変換してから depth 倍する。方向ベクトルの z 成分（OpenCVカメラ座標）を1に正規化して
+    depth 倍するため、遠端4隅は「光軸方向距離 = depth の平面」上に乗る（斜距離ではない）。
+    歪み係数は使わない（ピンホール、FR-003）。
+
+    Args:
+        c2w_b: (F,4,4) float64。compute_fps_poses() の戻り値（無効フレームは全要素NaN）。
+        K_fps: (3,3) float64。FPSカメラの内部パラメータ。
+        width, height: FPSカメラの解像度。
+        depth: 錐台奥行き[m]（有限かつ0より大きい。呼び出し前に検証済み）。
+
+    Returns:
+        (F,5,3) float64。インデックス0=視点（eyes_mid）、1..4=遠端4隅。
+        無効フレームはNaN（c2w_b のNaNが伝播する）。
+    """
+    c2w_b = np.asarray(c2w_b, dtype=np.float64)
+    fx, fy = float(K_fps[0, 0]), float(K_fps[1, 1])
+    cx, cy = float(K_fps[0, 2]), float(K_fps[1, 2])
+
+    corners_px = [(0, 0), (width, 0), (width, height), (0, height)]
+    dirs_cv = np.array(
+        [[(u - cx) / fx, (v - cy) / fy, 1.0] for (u, v) in corners_px], dtype=np.float64
+    )  # (4,3)
+
+    convert = np.diag([1.0, -1.0, -1.0, 1.0])  # Blender→OpenCV。c2w_blender_to_viewmats と同一式
+    with np.errstate(invalid="ignore"):
+        c2w_cv = c2w_b @ convert                 # (F,4,4)
+        R_cv = c2w_cv[:, :3, :3]
+        apex = c2w_cv[:, :3, 3]                  # = eyes_mid (F,3)
+        corners = apex[:, None, :] + depth * np.einsum("fij,cj->fci", R_cv, dirs_cv)  # (F,4,3)
+        return np.concatenate([apex[:, None, :], corners], axis=1)  # (F,5,3)
+
+
+def draw_frustum(
+    image: np.ndarray,
+    verts_calib: np.ndarray,
+    cam: dict,
+    depth_map,
+    alpha_map,
+    margin: float,
+    near_plane: float,
+    occlusion: bool = True,
+) -> np.ndarray:
+    """視錐台の8線分（FRUSTUM_EDGES）を観察カメラに投影してオクルージョン考慮で描画する。
+
+    既存 draw_overlay のボーン描画と同一方式（occlusion=True 時は3D線分を BONE_SAMPLES点に
+    線形補間 → project_keypoints/compute_keypoint_depth/compute_visibility（valid は全True）
+    → 可視な隣接サンプル間のみ cv2.line で描く。occlusion=False 時は両端を直接結ぶ）を適用する。
+    色 FRUSTUM_COLOR、太さ LINE_THICKNESS。draw_overlay 自体は変更しない。
+
+    Args:
+        image: (H,W,3) uint8 BGR。背景画像（コピーに描画、入力は変更しない）。
+        verts_calib: (5,3) float64。compute_frustum_vertices() の1フレーム分。有限値のみ
+            （無効フレームは呼び出し側でスキップする）。
+        cam: 観察カメラの辞書（select_camera() の戻り値）。
+        depth_map, alpha_map: 背景レンダリングで取得済みの深度・αマップ。
+            occlusion=False のとき None 可。
+        margin, near_plane: 既存 draw_overlay/compute_visibility と同じ意味。
+        occlusion: False のとき部分隠蔽なしで全8線分を描く。
+
+    Returns:
+        描画済み画像（入力のコピー）。
+    """
+    img = image.copy()
+    pts2d = project_keypoints(verts_calib, cam)  # (5,2)
+
+    for ia, ib in FRUSTUM_EDGES:
+        if not occlusion:
+            pa = tuple(np.round(pts2d[ia]).astype(int))
+            pb = tuple(np.round(pts2d[ib]).astype(int))
+            cv2.line(img, pa, pb, FRUSTUM_COLOR, LINE_THICKNESS)
+            continue
+
+        ts = np.linspace(0.0, 1.0, BONE_SAMPLES)
+        seg3d = (1 - ts)[:, None] * verts_calib[ia] + ts[:, None] * verts_calib[ib]
+        seg2d = project_keypoints(seg3d, cam)
+        seg_depth = compute_keypoint_depth(seg3d, cam)
+        seg_visible = compute_visibility(
+            seg2d, seg_depth, np.ones(BONE_SAMPLES, dtype=bool),
+            depth_map, alpha_map, margin, near_plane,
+        )
+        for k in range(BONE_SAMPLES - 1):
+            if seg_visible[k] and seg_visible[k + 1]:
+                pa = tuple(np.round(seg2d[k]).astype(int))
+                pb = tuple(np.round(seg2d[k + 1]).astype(int))
+                cv2.line(img, pa, pb, FRUSTUM_COLOR, LINE_THICKNESS)
+
+    return img
+
+
 def start_ffmpeg(output_dir: str, width: int, height: int, fps: float):
     """rawvideo(rgb24) を受け取りMP4を書き出す ffmpeg プロセスを起動して返す。
 
@@ -629,6 +779,7 @@ CONFIG_CONVERTERS = {
     "background": _yaml_floats3,
     "no_occlusion": _yaml_bool, "mp4": _yaml_bool, "no_png": _yaml_bool,
     "no_keypoints": _yaml_bool, "distort": _yaml_bool,
+    "fps_frustum": _yaml_bool, "fps_camera": str, "fps_toml": str, "frustum_depth": float,
 }
 
 
@@ -675,6 +826,17 @@ def _build_parser() -> argparse.ArgumentParser:
                              "（keypoints_path 省略必須）")
     parser.add_argument("--distort", action="store_true",
                         help="TOMLの歪み係数で歪みモデルレンダリング（--no-keypoints 専用）")
+    parser.add_argument("--fps-frustum", action="store_true",
+                        help="FPSカメラ（頭部キーポイント由来）の視錐台ワイヤフレームを"
+                             "マゼンタで重ね描き（--fps-camera 必須。動画モード専用）")
+    parser.add_argument("--fps-camera", default=None,
+                        help="視錐台のFOVに使うTOML内カメラ名（--fps-frustum 専用）")
+    parser.add_argument("--fps-toml", default=None,
+                        help="--fps-camera を検索するTOMLファイル（--fps-frustum 専用、"
+                             "省略時: 位置引数 toml_path と同じファイル）")
+    parser.add_argument("--frustum-depth", type=float, default=None,
+                        help=f"視錐台の奥行き[m]（--fps-frustum 専用、default: "
+                             f"{FRUSTUM_DEPTH_DEFAULT}）")
     parser.add_argument("--config", default=None,
                         help="設定YAML（フラット key: value）。優先順位は "
                              "CLI > 設定YAML > デフォルト。フラグ系（--no-occlusion/--mp4/"
@@ -776,7 +938,11 @@ def main(argv=None) -> int:
                      ("--start-frame", args.start_frame is not None),
                      ("--end-frame", args.end_frame is not None),
                      ("--no-occlusion", args.no_occlusion),
-                     ("--occlusion-margin", args.occlusion_margin is not None)]
+                     ("--occlusion-margin", args.occlusion_margin is not None),
+                     ("--fps-frustum", args.fps_frustum),
+                     ("--fps-camera", args.fps_camera is not None),
+                     ("--fps-toml", args.fps_toml is not None),
+                     ("--frustum-depth", args.frustum_depth is not None)]
         for name, given in forbidden:
             if given:
                 parser.error(f"--no-keypoints 指定時は {name} は使用できません")
@@ -786,8 +952,24 @@ def main(argv=None) -> int:
         if args.distort:
             parser.error("--distort は --no-keypoints と併用してください（動画モードは未対応）")
 
+    # --fps-frustum 関連の組み合わせ検証（FR-007 の 1〜3）
+    if args.fps_frustum and args.fps_camera is None:
+        parser.error("--fps-frustum 指定時は --fps-camera を指定してください")
+    if not args.fps_frustum:
+        for name, given in [("--fps-camera", args.fps_camera is not None),
+                            ("--fps-toml", args.fps_toml is not None),
+                            ("--frustum-depth", args.frustum_depth is not None)]:
+            if given:
+                parser.error(f"{name} は --fps-frustum と併用してください")
+    if args.frustum_depth is not None and (
+        not np.isfinite(args.frustum_depth) or args.frustum_depth <= 0
+    ):
+        parser.error("--frustum-depth は 0 より大きい有限の値を指定してください")
+
     if args.occlusion_margin is None:
         args.occlusion_margin = OCCLUSION_MARGIN
+    if args.frustum_depth is None:
+        args.frustum_depth = FRUSTUM_DEPTH_DEFAULT
 
     # --no-png 単独指定は出力が何もなくなるため、重い処理に入る前に拒否する
     if args.no_png and not args.mp4:
@@ -801,6 +983,29 @@ def main(argv=None) -> int:
         print(e, file=sys.stderr)
         return 1
     print(f"対象カメラ: {cam['name']} ({cam['width']}x{cam['height']})")
+
+    # FPSカメラ選択（--fps-frustum 指定時のみ）。--fps-toml 省略時は観察カメラと同じ
+    # cameras 辞書（toml_path）を再利用し、指定時は別ファイルを読み込む（feat-034 イテレーション1）
+    fps_cam = None
+    if args.fps_frustum:
+        if args.fps_toml is None:
+            fps_cameras = cameras
+        else:
+            try:
+                fps_cameras = load_cameras_toml(args.fps_toml)
+            except FileNotFoundError:
+                print(f"エラー: --fps-toml のファイルが見つかりません: {args.fps_toml}",
+                      file=sys.stderr)
+                return 1
+            except tomli.TOMLDecodeError as e:
+                print(f"エラー: --fps-toml をTOMLとして解釈できません: {args.fps_toml}: {e}",
+                      file=sys.stderr)
+                return 1
+        try:
+            fps_cam = select_camera(fps_cameras, args.fps_camera)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 1
 
     if args.no_keypoints:
         return _run_still_mode(args, cam)
@@ -819,6 +1024,18 @@ def main(argv=None) -> int:
         return 1
     # マーカー構成は入力全体で固定。既知マーカー0個なら描画対象がないため早期終了する
     present = {name for name in KEYPOINT_NAMES if name in labels}
+
+    # FPS視錐台用の頭部7点構成チェック（--fps-frustum 指定時のみ、FR-007の6）。
+    # フレーム単位のNaN欠損とは区別し、構成に無い場合のみ早期エラーとする
+    if args.fps_frustum:
+        missing_head = [name for name in HEAD_JOINT_NAMES if name not in labels]
+        if missing_head:
+            print(
+                f"頭部マーカーが入力にありません（--fps-frustum に必須）: "
+                f"{', '.join(missing_head)}", file=sys.stderr,
+            )
+            return 1
+
     if not present:
         print(f"{fmt}に既知マーカーが1つもありません（labels: {', '.join(labels)}）",
               file=sys.stderr)
@@ -841,6 +1058,18 @@ def main(argv=None) -> int:
                   f"該当するフレームがありません", file=sys.stderr)
             return 1
         print(f"フレーム範囲: {total_frames} フレーム中 {len(frames_data)} フレームを対象")
+
+    # FPS視錐台の事前計算（全フレーム一括、フレーム範囲フィルタ後のframes_dataとインデックスを揃える）
+    frustum_verts = None
+    frustum_valid = None
+    if args.fps_frustum:
+        print(f"FPS視錐台: カメラ {fps_cam['name']} ({fps_cam['width']}x{fps_cam['height']}), "
+              f"奥行き {args.frustum_depth} m")
+        head_arr = collect_head_points(labels, frames_data)        # (F,7,3)
+        head_idx = {name: i for i, name in enumerate(HEAD_JOINT_NAMES)}
+        c2w_b, frustum_valid, _ = compute_fps_poses(head_arr, head_idx)
+        frustum_verts = compute_frustum_vertices(
+            c2w_b, fps_cam["K"], fps_cam["width"], fps_cam["height"], args.frustum_depth)
 
     # PLY読み込み（render.py は torch を top-level import するため関数内 import）
     from render import load_ply, print_ply_summary
@@ -907,8 +1136,16 @@ def main(argv=None) -> int:
             else:
                 kp_visible = np.ones(len(KEYPOINT_NAMES), dtype=bool)
 
+            # FPS視錐台（あれば）を背景に重ね描きしてからスケルトンを描く（視錐台が下）
+            base = bgr_bg
+            if frustum_verts is not None and frustum_valid[i]:
+                base = draw_frustum(
+                    bgr_bg, frustum_verts[i], cam, depth_map, alpha_map,
+                    args.occlusion_margin, args.near_plane, occlusion=occlusion,
+                )
+
             overlay = draw_overlay(
-                bgr_bg, kpts_calib, pts2d, valid, kp_visible, cam, skeleton,
+                base, kpts_calib, pts2d, valid, kp_visible, cam, skeleton,
                 depth_map, alpha_map, args.occlusion_margin, args.near_plane,
                 occlusion=occlusion,
             )
@@ -962,6 +1199,16 @@ def main(argv=None) -> int:
 
     if rc != 0:
         return rc
+
+    if args.fps_frustum:
+        n_total = len(frames_data)
+        n_valid = int(np.count_nonzero(frustum_valid))
+        if n_valid == n_total:
+            print(f"FPS視錐台: {n_valid}/{n_total} フレームに描画")
+        else:
+            n_invalid = n_total - n_valid
+            print(f"FPS視錐台: {n_valid}/{n_total} フレームに描画"
+                  f"（頭部キーポイント欠損・縮退により {n_invalid} フレームは非描画）")
 
     elapsed = time.time() - start_time
     print(f"\n完了: {output_dir} ({len(frames_data)} フレーム, {elapsed:.1f}秒)")
