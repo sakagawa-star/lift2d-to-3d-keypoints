@@ -45,3 +45,4 @@
 | feat-032 | 機能追加 | render_keypoints.py の NPZ 入力対応（拡張子判別、C3D と併存） | Closed |
 | feat-033 | 機能追加 | render_keypoints.py の YAML 設定ファイル読み込み（--config、feat-029 の展開） | Closed |
 | feat-034 | 機能追加 | render_keypoints.py FPSカメラ視錐台ワイヤフレームの重ね描き（オクルージョン考慮） | Closed |
+| feat-035 | 機能追加 | 8台多視点同時外部パラメータ調整（MASt3Rクロスカメラ + 3DGSアンカーのバンドル調整、手動基準点不使用） | Open |
