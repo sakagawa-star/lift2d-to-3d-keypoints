@@ -2,7 +2,11 @@
 
 ## ステータス
 
-Open（計画確定〔2026-08-18 改訂: 初期ポーズ方針を全台手動経路に変更〕。Step 1-2 完了・Step 3 完了〔ブートストラップは主経路外に降格〕。**現在: Step 3M — ユーザーの手動プロット完了済み、次は refine_extrinsics.py の8台実行**。詳細は roadmap.md と .claude/handovers/2026-08-21_1620.md）
+**Closed**（2026-08-25 完了。最終手動テスト合格）
+
+- 全 Step 完了: Step 1-3（計画・接続性・案A転換）→ 3M（8台手動+feat-026 精緻化、全台受理・目視承認）→ 3F（エピポーラフィルタ、採用8/28ペア・8台単一連結で Go）→ 4（アンカー8台×約3000点）→ 5（BA 収束。x_scale='jac' 設計改訂を含む）→ 6（MVP 完成・手動テスト）→ 7（パラメータ決定実験 p1_param_sweep。採用値: W_CROSS=2.0・w_k=1、HUBER_PX は結合検証で停滞発覚のため既定値 2.0 に差し戻し〔criteria §4b 追補〕）→ 8（完了処理）
+- 最終成果: `phase4/adjust_extrinsics_multiview.py` + `matcher_lab/mast3r_cli.py`。inuyama 8台でホールドアウト三角測量再投影残差 中央値 0.868px。BA前後差 0.025px（feat-026 の8台独立精緻化が多視点的にも整合していたことの独立検証）
+- 詳細は `docs/CHANGELOG.md`（2026-08-25）と `experiments/` 各記録を参照
 
 ## 概要
 

@@ -205,6 +205,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
+| `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知） |
 | `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング） |
 
 ### camera_pose.py（カメラポーズ書き出し）
@@ -402,6 +403,26 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 受理判定はサンプリング型（3チェーン×20サンプルの合意 f_c≥0.7。二峰時は手動点再投影で仲裁）。結果・失敗段・診断値はレポート参照
 - 事前準備: `uv sync --project matcher_lab` と LoFTR 重みのローカル配置（初回のみ `matcher_lab/loftr_smoke.py` の実行で自動取得）。実行時はオフラインで動作
 - 処理時間の目安: 1カメラ 3〜6分（RTX 5060 Ti 実測）
+
+### adjust_extrinsics_multiview.py（8台多視点同時外部パラメータ調整。feat-035）
+
+feat-026 で個別に精緻化した8台の外部パラメータ（R, t）を、(1) 3DGSレンダ↔実写の LoFTR アンカー対応点と (2) カメラ間の実写同士の MASt3R クロス対応点（確定ポーズによるエピポーラ整合フィルタで対称偽マッチを除去）の再投影誤差を同時最小化するバンドル調整で一括調整する。K・歪みは入力 TOML の値を使う（K既知）。ホールドアウト評価つき診断レポートと、ポーズ確定カメラのみを含む Calib_scene 型 TOML を出力する。
+
+```bash
+# プロジェクトルートで実行（phase4 環境 + matcher_lab 環境を subprocess 連携）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extrinsics_multiview.py \
+  --toml <内部パラメータTOML(intrinsics_all型)> --ply <3DGS PLY> --images-dir <実写画像ディレクトリ> \
+  --init-toml <初期ポーズTOML(feat-026出力等)> \
+  --init-cameras cam1 cam2 ... \
+  --out-toml <出力TOML> --out-report <診断レポートtxt> \
+  [--cameras cam1 cam2 ...] [--overwrite] [--seed 5000] [--tmp-dir <中間ファイル置き場>] [--fresh-match]
+```
+
+- 実写画像は `{images-dir}/{カメラ名}.png`（1920x1080 のみ対応）。対象カメラ（`--cameras` 省略時は TOML×画像の積集合）は**全て `--init-cameras` で信頼指定されている必要がある**（外れがあればエラー終了。feat-026 出力 TOML は未精緻化カメラの無効ポーズを含み得るため明示指定必須）
+- `--toml` からは K・歪み・画像サイズのみ使用（同 TOML の rotation/translation は読み捨て）。初期ポーズは `--init-toml` × `--init-cameras` から取る
+- 処理段: ペアマッチング（NPZキャッシュ再利用、`--fresh-match` で再実行）→ エピポーラフィルタ（採用ペアグラフで全カメラ単一連結でなければエラー）→ アンカー取得 → バンドル調整（非悪化フォールバック: アンカー残差が 0.3px 超悪化したカメラは BA 前ポーズに戻す）→ ホールドアウト評価・レポート (a)〜(i)・TOML出力
+- 事前準備: `uv sync --project matcher_lab` に加え、MASt3R のリポジトリ（`~/git/mast3r`）とチェックポイント（`~/data/models/mast3r/`）、LoFTR 重み（refine_extrinsics.py と共通）が必要
+- 処理時間の目安: 初回はペアマッチ28ペア + アンカー8台の生成で数十分、中間NPZキャッシュ再利用時は10分前後（RTX 5060 Ti 実測。BA 本体は約4分）
 
 ### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030/031）
 

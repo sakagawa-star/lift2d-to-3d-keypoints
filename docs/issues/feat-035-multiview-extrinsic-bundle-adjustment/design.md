@@ -25,7 +25,7 @@ matcher_lab/mast3r_cli.py               # MASt3R ペアマッチング CLI（新
 phase4/refine_extrinsics.py             # 流用元（変更しない）: render_depth_alpha_distorted,
                                         #   sample_depth_bilinear, depth_variance_map, gate_breakdown,
                                         #   call_matcher, _format_camera_section, pose_diff,
-                                        #   GATE_* / NEAR_PLANE 定数
+                                        #   GATE_* / NEAR_PLANE 定数, sched（ANCHOR_DISP_TAU_PX の出典）
                                         #   （write_output_toml は入力TOML全カメラを書くため流用しない）
 phase4/render_keypoints.py              # 流用元（変更しない）: load_cameras_toml, select_camera, render_image
 phase4/render.py                        # 流用元（変更しない）: load_ply
@@ -59,30 +59,36 @@ Stage E: 評価・出力         … ホールドアウト評価、レポート�
 
 カメラ辞書は `load_cameras_toml()` の戻り値（`K`(3,3) float64, `D`(4|5|8,) float64, `rvec`(3,), `tvec`(3,), OpenCV world-to-camera 規約）を基に作る。**マージ規則**: `--toml`（intrinsics_all.toml）からは K・D・画像サイズのみ採用し、同TOMLに書かれている rotation/translation は**読み捨てる**（別座標系の値である可能性があるため初期値に使わない）。`rvec`/`tvec` は「`--init-toml` に存在し、**かつ `--init-cameras` に指定された**カメラ」についてのみ `--init-toml` の値をコピーし、それ以外のカメラは必ず None とする（None のカメラが Stage B の対象）。`--init-cameras` 省略時は `--init-toml` の全カメラを指定したものとみなすが、**省略が許されるのは「全対象カメラ分のみを含む受理済みTOML」を使う場合に限る**（inuyama 主経路では明示指定必須。§2.7）。**注意**: feat-026 の出力TOML（`write_output_toml` 生成）は入力TOMLの全カメラのセクションを含み、精緻化されなかったカメラには無効なポーズが残るため、これを `--init-toml` に使う場合は `--init-cameras` の明示指定が必須（requirements FR-002）。`--init-cameras` に指定されたカメラが `--init-toml` に存在しない場合はエラーメッセージを出し終了コード1。
 
-本体冒頭に定義する定数（FR-008 の実験で見直す前提の初期値。値の根拠を併記）:
+本体冒頭に定義する定数（FR-008 の実験対象は各コメントに「実験で決定」と明記。固定流用値は出典を併記）:
 
 ```python
 N_PAIR_MIN = 50        # 採用ペアの最小マッチ数（初期値。実験で決定）
 N_BOOT_MIN = 30        # ブートストラップPnPの最小 2D-3D 対応数（refine_extrinsics N_MIN と同値）
 BOOT_RANSAC_PX = 8.0   # ブートストラップPnP RANSAC 閾値（refine_extrinsics sched(0) と同値）
 BOOT_INLIER_MIN = 30   # ブートストラップPnP の最小 inlier 数
-HUBER_PX = 2.0         # Huber f_scale [px]（初期値。実験で決定）
-W_ANCHOR = 1.0         # アンカー項重み（初期値。実験で決定）
-W_CROSS = 1.0          # クロス項重み（初期値。実験で決定）
+HUBER_PX = 2.0         # Huber f_scale [px]（p1_param_sweep で決定。当初 1.0 採用も反映後再検証で
+                       # W_CROSS=2.0 との相互作用による BA 停滞が発覚し、既定値 2.0 に改訂。
+                       # 2026-08-25 ユーザー承認済み。criteria §4b・experiment_log 参照）
+W_ANCHOR = 1.0         # アンカー項重み（p1_param_sweep で既定値維持を確認）
+W_CROSS = 2.0          # クロス項重み（p1_param_sweep で決定。2026-08-25 採用・ユーザー承認済み）
 HOLDOUT_RATIO = 0.2    # ホールドアウト比率（初期値。実験で決定）
 SEED_DEFAULT = 5000    # ホールドアウト分割の乱数シード（--seed で変更可）
 ANCHOR_MAX_PTS = 3000  # カメラあたりアンカー対応点の上限（超過時は conf 降順で切詰め。BA規模の抑制）
-MAX_NFEV = 200         # least_squares の最大評価回数
+MAX_NFEV = 1000        # least_squares の最大評価回数（改訂 2026-08-24: x_scale='jac' 前提でも
+                       # inuyama 実測 nfev=270 で収束するため、収束余裕を持って 200→1000 に引き上げ）
 TRI_MIN_ANGLE_DEG = 2.0  # 三角測量点の最小交会角[度]。未満の点は BA・評価から除外
 Z_TRI_RANGE = (0.1, 10.0)  # 三角測量点の許容深度[m]（両カメラとも）。範囲外は除外
 N_ANCHOR_MIN = 30      # BA参加に必要な最小アンカー対応点数（FR-005 のBA参加条件）
 BA_DEGRADE_TOL_PX = 0.3  # 非悪化フォールバックの許容悪化幅[px]（FR-005）
-THETA_OPT_DEG = 30.0   # 交会角重みの最適角[度]（先行研究 VISAPP2026 の最適角30°。prior_work.md §2）
-THETA_SIGMA_DEG = 15.0 # 交会角重みのガウス幅[度]（初期値。実験で決定）
+THETA_OPT_DEG = 30.0   # 交会角重みの最適角[度]（VISAPP2026。交会角重み無効化採用により主経路では未使用。
+                       # crossing_angle_weight 関数と単体テストは温存）
+THETA_SIGMA_DEG = 15.0 # 交会角重みのガウス幅[度]（同上。主経路では未使用）
 EPI_TOL_PX = 3.0       # エピポーラ整合フィルタの許容誤差[px]（初期値。実験で決定。FR-010）
+ANCHOR_DISP_TAU_PX = sched(1)["tau_px"]  # =10.0。Stage A の gate_breakdown cond_disp 許容画素変位[px]
+                       # （refine_extrinsics の収束後反復の値を援用。§2.4。FR-008 の実験対象外）
 ```
 
-ゲート定数・NEAR_PLANE は `refine_extrinsics` から import して使う（GATE_ALPHA=0.5, GATE_Z_RANGE=(0.5,10.0), GATE_VAR_WINDOW=5, GATE_VAR_REL=0.02, NEAR_PLANE=0.5。再定義しない）。
+ゲート定数・NEAR_PLANE・`sched` は `refine_extrinsics` から import して使う（GATE_ALPHA=0.5, GATE_Z_RANGE=(0.5,10.0), GATE_VAR_WINDOW=5, GATE_VAR_REL=0.02, NEAR_PLANE=0.5。再定義しない。`sched` は ANCHOR_DISP_TAU_PX の出典として使用）。
 
 ### 2.1 MASt3R ペアマッチング CLI（FR-001）
 
@@ -131,7 +137,7 @@ EPI_TOL_PX = 3.0       # エピポーラ整合フィルタの許容誤差[px]（
 
 対象は**ポーズ確定カメラ**（= `--init-cameras` で信頼指定されたカメラ）のみ。各ポーズ確定カメラ i について:
 1. `render_image(gaussians, cam_i, NEAR_PLANE, distort=True)` でレンダPNGを作り、`refine_extrinsics.call_matcher`（LoFTR）で実写とマッチする。`call_matcher` は raw マッチ（全confidence）を返すだけなので、`collect_anchor_points` 側で `conf >= refine_extrinsics.LOFTR_CONF_TH`（=0.2）の選別を明示的に適用する
-2. `render_depth_alpha_distorted` の深度・αマップと `gate_breakdown` 相当のゲートでレンダ側画素を選別・3D化する（3D化手順は §2.3-3 と同一）
+2. `render_depth_alpha_distorted` の深度・αマップと `gate_breakdown` でレンダ側画素を選別・3D化する（3D化手順は §2.3-3 と同一）。ゲートの構成は feat-026 実装（`run_iteration` Stage 4）と同一とする: `pixel_valid`・`var_map`・`tau_d` を同手順で作り、`gate_breakdown(u_q, u_r, depth, alpha, var_map, tau_d, ANCHOR_DISP_TAU_PX)` を呼ぶ。cond_disp の許容画素変位は `ANCHOR_DISP_TAU_PX = sched(1)["tau_px"]`（=10.0px）を援用する（根拠: Stage A のマッチは確定ポーズのレンダ↔実写であり、feat-026 の収束後反復〔sched(1)〕と同条件。新規チューニング定数を増やさない）
 3. 対応点が ANCHOR_MAX_PTS を超える場合は LoFTR conf 降順に切り詰める
 4. N_A < N_ANCHOR_MIN のカメラは BA に参加させない（FR-005 のBA参加条件。クロス項のみでは並進スケールが平坦方向になり得るため）。当該カメラは**信頼初期ポーズ**（Step 3M の feat-026 受理済みポーズ）を最終値とし、レポートに "アンカー不足（BA未参加）" と記録する（feat-026 品質は入力時点で保証されている）。当該カメラを含む採用ペアのクロス対応点は BA・評価の対象から除外する
 
@@ -160,9 +166,9 @@ EPI_TOL_PX = 3.0       # エピポーラ整合フィルタの許容誤差[px]（
 
 **残差ベクトル**（この順で連結）:
 - アンカー項: 各カメラ i の各点 `W_ANCHOR * (projectPoints(X_w, rvec_i, tvec_i, K_i, D_i) - u_i)` … 2×ΣN_A 成分。X_w は定数（最適化しない。設計判断: アンカー3D点を動かすと3DGS座標系への固定が緩むため定数とする）
-- クロス項: 各3D点 Y_k を観測する2カメラへの `W_CROSS * w_k * (projectPoints(Y_k, ...) - u)` … 4×M 成分。`w_k` は交会角重み（先行研究 VISAPP2026 の交会角スコアを採用。prior_work.md §2）: 初期三角測量時の交会角 θ_k [度] から `w_k = exp(-(θ_k - THETA_OPT_DEG)**2 / (2 * THETA_SIGMA_DEG**2))` を**初期化時に1回だけ**計算し、BA 中は定数として扱う（反復中の再計算はしない）
+- クロス項: 各3D点 Y_k を観測する2カメラへの `W_CROSS * w_k * (projectPoints(Y_k, ...) - u)` … 4×M 成分。`w_k` は**1固定（交会角重みの無効化。p1_param_sweep 2026-08-25 の採用・ユーザー承認済み: VISAPP2026 由来のガウス重み `w_k = exp(-(θ_k - THETA_OPT_DEG)**2 / (2 * THETA_SIGMA_DEG**2))` は本データで効果がなく、w_k=1 が中央値最小だった）**。実装は `build_cross_points` が weight=1.0 を設定する（`crossing_angle_weight` 関数・θ_k の計算・関連単体テストは将来の再有効化に備えて温存する。三角測量ゲート TRI_MIN_ANGLE_DEG は従来どおり有効）
 
-**最適化**: `scipy.optimize.least_squares(fun, x0, jac_sparsity=S, method='trf', loss='huber', f_scale=HUBER_PX, max_nfev=MAX_NFEV)`。jac_sparsity は lil_matrix で「各残差ブロック × 対応カメラの6パラメータ」「クロス残差ブロック × 対応3D点の3パラメータ」のみ 1 を立てる。
+**最適化**: `scipy.optimize.least_squares(fun, x0, jac_sparsity=S, method='trf', loss='huber', f_scale=HUBER_PX, max_nfev=MAX_NFEV, x_scale='jac')`。jac_sparsity は lil_matrix で「各残差ブロック × 対応カメラの6パラメータ」「クロス残差ブロック × 対応3D点の3パラメータ」のみ 1 を立てる。`x_scale='jac'` は必須（改訂 2026-08-24。未知数に回転[rad]と並進・3D点[m]が混在しスケールが不均衡なため、既定の x_scale=1.0 では trf が収束しない。inuyama 実データでの実測: x_scale 既定では max_nfev=3000 でも status=0〔コスト 46390 で漸近〕、x_scale='jac' では nfev=270 で status=2 収束〔コスト 46337〕。ヤコビアン列ノルムによる自動スケーリングは疎 BA の標準手法）。MAX_NFEV は `x_scale='jac'` 前提でも実測 nfev=270 のため、収束余裕を持って 1000 とする（§2.0 定数一覧と同時改訂）。
 
 **エラーハンドリング**: least_squares が status < 1（収束せず）の場合、警告をレポートに記録し、最終反復の解をそのまま出力する（中断しない）。残差に NaN が生じた場合（3D点がカメラ背面に回った場合に発生し得る）は、当該点の残差を 1e3 px に置換する定数バリアで扱う。
 
@@ -232,7 +238,7 @@ def main(argv=None) -> int
 
 ## 3. パラメータ決定実験（FR-008）の進め方
 
-実装完了・自動テスト通過後、`experiments/p1_param_sweep/` に criteria 文書を作成する。criteria には「本実験は合格判定ではなく基準値の測定をゴールとする」ことを明記し、(1) N_PAIR_MIN・HUBER_PX・W_CROSS/W_ANCHOR・HOLDOUT_RATIO・THETA_SIGMA_DEG（交会角重みの無効化 `w_k=1` を含む）・EPI_TOL_PX（Stage F の許容誤差。フィルタ後生存率とホールドアウト残差の両方を記録）の走査範囲、(2) 各設定で記録する測定値（ホールドアウト残差の中央値・90%点、収束反復数）、(3) 採用値の決め方（ホールドアウト残差中央値が最小の設定を採用。同率は既定値優先）を事前定義し、Codex レビュー（criteria lock）後に実施する。また、アンカー対応点のマッチャーを LoFTR から MASt3R に替えた場合の比較（GS-CPR が MASt3R を採用している先例に基づく。prior_work.md §1）を任意の追加実験項目として criteria に含めてよい（採否は criteria 作成時に決める）。実験の実行・記録は CLAUDE.md「実験・検証の進め方」に従う。
+実装完了・自動テスト通過後、`experiments/p1_param_sweep/` に criteria 文書を作成する。criteria には「本実験は合格判定ではなく基準値の測定をゴールとする」ことを明記し、(1) N_PAIR_MIN・HUBER_PX・W_CROSS/W_ANCHOR・HOLDOUT_RATIO・THETA_SIGMA_DEG（交会角重みの無効化 `w_k=1` を含む）・EPI_TOL_PX（Stage F の許容誤差。フィルタ後生存率とホールドアウト残差の両方を記録）の走査範囲、(2) 各設定で記録する測定値（ホールドアウト残差の中央値・90%点、収束反復数）、(3) 採用値の決め方（ホールドアウト残差中央値が最小の設定を採用。同率は既定値優先。ただしホールドアウト集合の構成を変えるパラメータ〔EPI_TOL_PX・N_PAIR_MIN〕は、連結性成立かつ採用ペア数・ホールドアウト点数がベースライン以上の候補に限定して比較する coverage-aware 規則とし、HOLDOUT_RATIO は比較不能のため既定値を維持して感度記録のみとする。one-at-a-time 走査で決めた採用値の組み合わせは反映前に**結合検証**〔収束 status≥1 かつ中央値が単独最良値+0.01px 以内。不合格時は単独改善幅最小のパラメータから既定値に戻す〕を行う — p1_param_sweep criteria §4b の追補 2026-08-25）を事前定義し、Codex レビュー（criteria lock）後に実施する。また、アンカー対応点のマッチャーを LoFTR から MASt3R に替えた場合の比較（GS-CPR が MASt3R を採用している先例に基づく。prior_work.md §1）を任意の追加実験項目として criteria に含めてよい（採否は criteria 作成時に決める）。実験の実行・記録は CLAUDE.md「実験・検証の進め方」に従う。
 
 ## 4. テスト設計
 
@@ -268,7 +274,7 @@ def main(argv=None) -> int
 | アンカー不足カメラ | BA除外（信頼初期ポーズ〔Step 3M の feat-026 受理済みポーズ〕を最終値に） | クロス項のみでBA参加: 2視点ペア点のみでは並進スケールが観測不能になり得る（Codexレビュー高1） |
 | OOM時の縮小 | CLI 内部で `--resolution 1280x720`（縮小・逆写像はCLIの責務） | 呼び出し側で縮小PNG生成: CLI が原寸以外を拒否する仕様と矛盾（Codexレビュー高3） |
 | 出力TOMLライタ | 専用 `write_multiview_toml` 新設 | `write_output_toml` 流用: 入力TOML全カメラを書くため失敗カメラ除外（FR-007）を満たせない（Codexレビュー高2） |
-| クロス項の交会角重み | ガウス型スコア（最適30°。VISAPP2026 に準拠） | ハード閾値のみ: 準退化点が全重みで効き BA の条件数を悪化させる。先行研究が交会角スコアの有効性を実証 |
+| クロス項の交会角重み | 【改訂 2026-08-25】w_k=1 固定（p1_param_sweep で無効化が中央値最小となり採用・ユーザー承認済み。`crossing_angle_weight` 関数と単体テストは将来再有効化用に温存） | 当初採用のガウス型スコア（最適30°。VISAPP2026 準拠）: 本データで効果なし。ハード閾値のみ: 三角測量ゲート TRI_MIN_ANGLE_DEG として維持 |
 | Stage R の挿入（BA前の反復精緻化） | 【その後廃止】案A採用で対象消滅（下記） | 粗ブートストラップ→直接BA（旧計画）: 2026-08-17 実測で初期化ずれ 15〜43px |
 | 初期ポーズの取得経路（案A。2026-08-18） | 全カメラを手動プロット + refine_extrinsics.py で確定し `--init-cameras` に与える | 自動ブートストラップ主経路: 対称環境で MASt3R が対称構造を偽マッチし全6台が誤収束（experiments/p0_bootstrap 追加診断）。検知強化（案B）も正解が得られる保証がなく却下 |
 | クロス対応点の事前フィルタ | エピポーラ整合（Sampson距離、確定ポーズ基準）で偽マッチ除去 | フィルタなし: 対称偽マッチが BA のクロス項を汚染する（同診断で inlier 率 10〜37% を実測） |

@@ -2,6 +2,16 @@
 
 ## リリース履歴
 
+### 2026-08-25
+
+- **feat-035**: 8台多視点同時外部パラメータ調整（MASt3Rクロスカメラ + 3DGSアンカーのバンドル調整）
+  - 新規 `phase4/adjust_extrinsics_multiview.py`（Stage P→F→A→D→E のバッチ）と `matcher_lab/mast3r_cli.py`（MASt3R ペアマッチング CLI。subprocess 連携）。初期ポーズは案A（全8台を手動プロット + `refine_extrinsics.py` で確定し `--init-cameras` に明示指定。Stage B ブートストラップは対称環境の偽マッチ誤収束の実測により主経路外へ降格・コード温存）
+  - Stage P: 28ペア MASt3R マッチ（N=124〜1943、全ペア採用・NPZキャッシュ再利用可）。Stage F: エピポーラ整合フィルタ（FR-010、Sampson 距離 EPI_TOL_PX=3.0）で対称偽マッチを除去し採用8/28ペア・8台単一連結（視線角差>95°の対面ペアはほぼ全滅=偽マッチ支配を実証）。Stage A: レンダ↔実写 LoFTR アンカー各台約3000点（BA参加8/8）。Stage D: 疎ヤコビアン trf+huber BA（`x_scale='jac'` 必須〔スケール不均衡で収束しない事象を診断し設計改訂〕、MAX_NFEV=1000）+ 非悪化フォールバック（>0.3px 悪化で BA 前ポーズ復帰。発動0/8）。Stage E: ホールドアウト評価・レポート(a)〜(i)・ポーズ確定カメラのみの専用TOMLライタ
+  - 結果（inuyama 8台）: BA 収束 status=2、ホールドアウト三角測量再投影残差 中央値 **0.8684px** / RMSE 1.131px。ポーズ変化は位置≤0.15cm・回転≤0.065°。BA前後のホールドアウト差は 0.025px であり、feat-026 の8台独立精緻化が多視点的にも約0.9pxで整合していたことを独立検証（BA の実質寄与は本データでは検証が主）
+  - パラメータ決定実験（p1_param_sweep、FR-008、criteria lock 方式・one-at-a-time 17設定）: W_CROSS=2.0・交会角重み無効化（w_k=1、`crossing_angle_weight` は温存）を採用、EPI_TOL_PX/N_PAIR_MIN/HOLDOUT_RATIO は既定値維持。当初採用の HUBER_PX=1.0 は W_CROSS=2.0 との相互作用（Huber 飽和による勾配退化）で BA 停滞が反映後再検証で発覚し、分解診断のうえ既定値 2.0 に差し戻し（criteria §4b に結合検証規則を追補）
+  - 実験記録: `experiments/`（p0_pair_connectivity・p0_bootstrap・p0_manual_all8〔Step 3M: 8台手動精緻化 全台受理・目視承認〕・p0_epi_filter・step6_mvp・step7_final）。いずれも criteria lock / 直前予測→実測→照合の実験プロトコルで実施
+  - テスト: `tests/test_feat035_multiview.py` 新規（全体回帰 513 passed / 1 skipped）。Codex レビュー codex-01〜39 で高・中ゼロ収束（criteria lock 6本・設計改訂4回を含む）。実装は Sonnet サブエージェント委任。手動テスト合格（Step 3M: 2026-08-24、Step 6 MVP: 2026-08-25、最終: 2026-08-25）
+
 ### 2026-08-13
 
 - **feat-034**: render_keypoints.py FPSカメラ視錐台ワイヤフレームの重ね描き

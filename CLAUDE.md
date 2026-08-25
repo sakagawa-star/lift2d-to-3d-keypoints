@@ -112,11 +112,13 @@ lift2d-to-3d-keypoints/
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   ├── filter_npz.py                  # NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要、NaN区間維持・追加キー無加工コピー。feat-028）
 │   ├── refine_extrinsics.py           # 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化バッチ（K既知、サンプリング型受理判定、Calib_scene.toml型出力+診断レポート。feat-026）
+│   ├── adjust_extrinsics_multiview.py # 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点〔エピポーラ整合フィルタつき〕+ 3DGSアンカーのバンドル調整、K既知。初期ポーズは全台 feat-026 精緻化済みを --init-cameras で明示指定。ホールドアウト評価・診断レポート・ポーズ確定カメラのみのTOML出力。feat-035）
 │   ├── render_fps_video.py            # NPZ直読みFPS動画一括生成（頭部キーポイントからポーズをnumpy計算、ピンホールK、NaN=黒画面、チャンク分割+耐久書き出し+ffprobe破損検査つき再開、静止画/ポーズダンプ排他モード、--config YAML対応、--gpus でチャンク並列レンダリング〔単一GPU複数ワーカー/複数GPU対応、動的分配、失敗時即時中止〕、完了時に <MP4名>_info.txt を自動保存。feat-027/029/030/031）
 │   └── data/                          # データファイル（gitignore）
 ├── matcher_lab/                       # 学習ベースマッチャー環境（独立した uv 環境。feat-026）
 │   ├── pyproject.toml                 # uv パッケージ管理（Python 3.12 / torch cu130 / kornia）
 │   ├── loftr_cli.py                   # LoFTR 推論 CLI（refine_extrinsics.py から subprocess で呼ばれる正式コンポーネント。feat-026）
+│   ├── mast3r_cli.py                  # MASt3R ペアマッチング CLI（adjust_extrinsics_multiview.py から subprocess で呼ばれる正式コンポーネント。feat-035）
 │   ├── loftr_smoke.py                 # LoFTR（kornia）の環境疎通スモークテスト
 │   └── mast3r_smoke.py                # MASt3R（~/git/mast3r + ~/data/models/mast3r/）の環境疎通スモークテスト
 └── tests/                             # テストコード
