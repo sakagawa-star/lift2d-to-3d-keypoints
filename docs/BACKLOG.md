@@ -17,8 +17,8 @@
 | bug-001 | 不具合 | visualize_points_2d.py のパス解決が既存スクリプトと不整合 | Closed |
 | feat-011 | 機能追加 | visualize_points_2d.py 基準点番号ラベル表示オプション | Closed |
 | feat-012 | 機能追加 | camera_pose.py カメラ名・出力先のCLIオプション化 | Closed |
-| feat-013 | 機能追加 | 3DGSレンダリング画像への3Dキーポイント重ね描き | 中止（feat-015/016 に作り直し） |
-| feat-014 | 機能追加 | ピンホール3DGSレンダリング（PNG出力、GT比較） | 中止（feat-015 に作り直し） |
+| feat-013 | 機能追加 | 3DGSレンダリング画像への3Dキーポイント重ね描き | Cancelled（feat-015/016 に作り直し） |
+| feat-014 | 機能追加 | ピンホール3DGSレンダリング（PNG出力、GT比較） | Cancelled（feat-015 に作り直し） |
 | feat-015 | 機能追加 | ピンホール3DGSレンダリング（PNG出力、GT比較） | Closed |
 | feat-016 | 機能追加 | キーポイントのオクルージョン（深度による前後判定） | Closed |
 | feat-017 | 機能追加 | render_keypoints.py 全フレーム対応（連番PNG + MP4） | Closed |
@@ -26,7 +26,6 @@
 | feat-019 | 機能追加 | FPS頭部追従カメラのポーズ書き出しスクリプト（ヘッドレス対応） | Closed |
 | feat-020 | 機能追加 | C3Dキーポイントの時間方向平滑化スクリプト | Closed |
 | feat-021 | 機能追加 | render_keypoints.py 欠損マーカー許容（22点C3D対応） | Closed |
-
 | feat-022 | 機能追加 | render_keypoints.py --no-png オプション（MP4のみ出力） | Closed |
 | feat-023 | 機能追加 | estimate_camera_params.py 接線歪みゼロ固定オプション（--zero-tangent） | Closed |
 | bug-002 | 不具合 | fps_camera_pose.py デフォルトアーマチュア名変更にテスト・ドキュメント未追随 | Closed |
@@ -46,3 +45,13 @@
 | feat-033 | 機能追加 | render_keypoints.py の YAML 設定ファイル読み込み（--config、feat-029 の展開） | Closed |
 | feat-034 | 機能追加 | render_keypoints.py FPSカメラ視錐台ワイヤフレームの重ね描き（オクルージョン考慮） | Closed |
 | feat-035 | 機能追加 | 8台多視点同時外部パラメータ調整（MASt3Rクロスカメラ + 3DGSアンカーのバンドル調整。初期ポーズは全台手動+feat-026 経路） | Closed |
+| update-003 | ドキュメント更新 | Codexレビューの Herdr 対話方式への移行（テンプレート改訂の取り込み） | Closed |
+
+## ステータス凡例
+
+- **Open**: 起票済み・未着手
+- **In Progress**: 調査・実装中
+- **Review**: レビュー中
+- **On Hold**: 一時中止（凍結）。再開する場合も、そのまま中止する場合もある。On Hold にする際は、本表のステータス欄に「On Hold（理由・再開点の要約）」を括弧書きで記録し、案件フォルダの README.md のステータスも On Hold に更新して日付・理由・再開点を記録する（README.md が未作成の案件では、概要と現在のステータスを記した README.md を作成して記録する）
+- **Closed**: 完了
+- **Cancelled**: 取りやめ・破棄（ドキュメントは履歴として残す）
