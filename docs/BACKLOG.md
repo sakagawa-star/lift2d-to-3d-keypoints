@@ -46,6 +46,7 @@
 | feat-034 | 機能追加 | render_keypoints.py FPSカメラ視錐台ワイヤフレームの重ね描き（オクルージョン考慮） | Closed |
 | feat-035 | 機能追加 | 8台多視点同時外部パラメータ調整（MASt3Rクロスカメラ + 3DGSアンカーのバンドル調整。初期ポーズは全台手動+feat-026 経路） | Closed |
 | update-003 | ドキュメント更新 | Codexレビューの Herdr 対話方式への移行（テンプレート改訂の取り込み） | Closed |
+| feat-036 | 機能追加 | render_keypoints.py ボーン線の太さ変更（2→20px、視錐台ワイヤフレームは2pxのまま据え置き） | Closed |
 
 ## ステータス凡例
 

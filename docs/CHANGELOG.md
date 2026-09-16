@@ -2,6 +2,14 @@
 
 ## リリース履歴
 
+### 2026-09-16
+
+- **feat-036**: render_keypoints.py ボーン線の太さ変更（視錐台ワイヤフレームは現状維持）
+  - ボーン線と FPSカメラ視錐台ワイヤフレームが共有していた定数 `LINE_THICKNESS`（=2、feat-034 由来）を廃止し、`BONE_THICKNESS`（=20、ボーン線）と `FRUSTUM_THICKNESS`（=2、視錐台）に分離。`draw_overlay()` のボーン描画2か所（occlusion 有効・無効の両経路）を `BONE_THICKNESS`、`draw_frustum()` の2か所を `FRUSTUM_THICKNESS` に差し替えた
+  - 変更理由は出力画像・動画上でボーン線（2px）が見にくいこと。太さは定数のみで定め、CLI オプション・設定YAMLキーは追加していない（ヒアリング確定事項）。キーポイント円（`POINT_RADIUS` =4）・色・描画順・オクルージョン判定・静止画モードは変更なし
+  - 見た目上の既知の影響（要求仕様書で許容）: 円がボーン線の幅の内側に収まる、オクルージョン境界で線端が最大10px はみ出す、画像上で短いボーンが塊状に見える
+  - テスト: `tests/test_feat036_bone_thickness.py` 新規5件（`cv2.line` に渡る thickness を monkeypatch で捕捉し、ボーン=20・視錐台=2 を両経路で検証。全体回帰 518 passed / 1 skipped）。実データ（session001、カメラ int_cam02_img、frame 145700〜145704）で出力PNGを目視確認。Codex レビューは反復 codex-01（高・中・低ゼロ）と全文ゲート codex-02（高・中ゼロ、低1を反映）で収束。実装は Sonnet サブエージェント委任。手動テスト合格（2026-09-16）
+
 ### 2026-08-31
 
 - **update-003**: Codexレビューの Herdr 対話方式への移行（開発ドキュメントテンプレート改訂の取り込み）

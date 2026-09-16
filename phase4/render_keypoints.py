@@ -84,7 +84,8 @@ COLOR_CENTER = (0, 255, 0)    # 緑（体幹・顔の中心線）
 POINT_COLOR = (0, 255, 255)   # 黄（キーポイント円）
 PART_COLOR = {"R": COLOR_RIGHT, "L": COLOR_LEFT, "C": COLOR_CENTER}
 POINT_RADIUS = 4
-LINE_THICKNESS = 2
+BONE_THICKNESS = 20           # ボーン線の太さ [px]（feat-036 で 2 → 20）
+FRUSTUM_THICKNESS = 2         # FPSカメラ視錐台ワイヤフレームの線の太さ [px]（feat-036 でボーンと分離、値は従来どおり）
 
 # ボーン部分隠蔽の線分サンプル数
 BONE_SAMPLES = 24
@@ -551,7 +552,7 @@ def draw_overlay(
         if not occlusion:
             pa = tuple(np.round(pts2d[ia]).astype(int))
             pb = tuple(np.round(pts2d[ib]).astype(int))
-            cv2.line(img, pa, pb, color, LINE_THICKNESS)
+            cv2.line(img, pa, pb, color, BONE_THICKNESS)
             continue
 
         # 部分隠蔽: 3D座標を線形補間 → 投影・深度 → 可視判定 → 可視な隣接ペアを結ぶ
@@ -567,7 +568,7 @@ def draw_overlay(
             if seg_visible[k] and seg_visible[k + 1]:
                 pa = tuple(np.round(seg2d[k]).astype(int))
                 pb = tuple(np.round(seg2d[k + 1]).astype(int))
-                cv2.line(img, pa, pb, color, LINE_THICKNESS)
+                cv2.line(img, pa, pb, color, BONE_THICKNESS)
 
     # 点
     for i in range(len(KEYPOINT_NAMES)):
@@ -664,7 +665,7 @@ def draw_frustum(
     既存 draw_overlay のボーン描画と同一方式（occlusion=True 時は3D線分を BONE_SAMPLES点に
     線形補間 → project_keypoints/compute_keypoint_depth/compute_visibility（valid は全True）
     → 可視な隣接サンプル間のみ cv2.line で描く。occlusion=False 時は両端を直接結ぶ）を適用する。
-    色 FRUSTUM_COLOR、太さ LINE_THICKNESS。draw_overlay 自体は変更しない。
+    色 FRUSTUM_COLOR、太さ FRUSTUM_THICKNESS。
 
     Args:
         image: (H,W,3) uint8 BGR。背景画像（コピーに描画、入力は変更しない）。
@@ -686,7 +687,7 @@ def draw_frustum(
         if not occlusion:
             pa = tuple(np.round(pts2d[ia]).astype(int))
             pb = tuple(np.round(pts2d[ib]).astype(int))
-            cv2.line(img, pa, pb, FRUSTUM_COLOR, LINE_THICKNESS)
+            cv2.line(img, pa, pb, FRUSTUM_COLOR, FRUSTUM_THICKNESS)
             continue
 
         ts = np.linspace(0.0, 1.0, BONE_SAMPLES)
@@ -701,7 +702,7 @@ def draw_frustum(
             if seg_visible[k] and seg_visible[k + 1]:
                 pa = tuple(np.round(seg2d[k]).astype(int))
                 pb = tuple(np.round(seg2d[k + 1]).astype(int))
-                cv2.line(img, pa, pb, FRUSTUM_COLOR, LINE_THICKNESS)
+                cv2.line(img, pa, pb, FRUSTUM_COLOR, FRUSTUM_THICKNESS)
 
     return img
 
