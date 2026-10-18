@@ -44,6 +44,15 @@ TOML内カメラのK・解像度から、奥行きは --frustum-depth（default:
       data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/Blender/keypoints.npz \\
       --camera cam41520554 --fps-frustum --fps-toml data/Blender/Config_fps.toml \\
       --fps-camera fps_cam01 --mp4 --output-dir data/keypoints_frustum
+
+複数人の重ね描き（feat-037）: キーポイントファイル（1ファイル=1人、C3Dのみ）を2個以上
+並べて指定すると、同じ3DGS背景に全員のスケルトンを描き、頭部の上に人物ラベル P1, P2, ...
+（指定順）を描く。--fps-frustum の視錐台は --fps-person で指定した1人（既定 P1）だけ描く。
+設定YAMLでは keypoints_path に ; 区切りで並べる:
+  TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
+      data/Blender/point_cloud.ply data/Blender/Config_scene.toml \\
+      data/patient.c3d data/staff.c3d \\
+      --camera cam41520554 --near-plane 0.5 --output-dir data/feat037_check --mp4
 """
 
 import argparse
@@ -86,6 +95,15 @@ PART_COLOR = {"R": COLOR_RIGHT, "L": COLOR_LEFT, "C": COLOR_CENTER}
 POINT_RADIUS = 4
 BONE_THICKNESS = 20           # ボーン線の太さ [px]（feat-036 で 2 → 20）
 FRUSTUM_THICKNESS = 2         # FPSカメラ視錐台ワイヤフレームの線の太さ [px]（feat-036 でボーンと分離、値は従来どおり）
+
+# 人物ラベル（feat-037。複数人モードのみ描画）
+LABEL_FONT = cv2.FONT_HERSHEY_SIMPLEX
+LABEL_FONT_SCALE = 1.0
+LABEL_THICKNESS = 2             # 文字の線の太さ [px]
+LABEL_OUTLINE_THICKNESS = 6     # 黒縁取りの線の太さ [px]（文字より先に描く）
+LABEL_COLOR = (255, 255, 255)   # 白 (BGR)
+LABEL_OUTLINE_COLOR = (0, 0, 0) # 黒 (BGR)
+LABEL_OFFSET = 20               # 基準点から文字のベースラインまでの上方向の距離 [px]
 
 # ボーン部分隠蔽の線分サンプル数
 BONE_SAMPLES = 24
@@ -707,6 +725,73 @@ def draw_frustum(
     return img
 
 
+# === feat-037: 複数人の重ね描き ===
+
+
+def make_absent_frame(frame_no: int, n_markers: int) -> dict:
+    """欠席フレーム（全マーカー無効）を表す frames_data 要素を返す（FR-009）。"""
+    return {
+        "frame_no": frame_no,
+        "data": np.full((n_markers, 3), np.nan, dtype=np.float64),
+        "residual": np.full(n_markers, -1.0, dtype=np.float64),
+    }
+
+
+def compute_person_depth(depth_cam: np.ndarray, valid: np.ndarray) -> float | None:
+    """人物深度（有効キーポイントの観察カメラ深度の算術平均）を返す（FR-007）。
+
+    valid が1個も無い、または平均が非有限なら None。near_plane・3DGS による隠蔽は考慮しない。
+    """
+    depth_cam = np.asarray(depth_cam, dtype=np.float64)
+    valid = np.asarray(valid, dtype=bool)
+    if not valid.any():
+        return None
+    mean = float(np.mean(depth_cam[valid]))
+    if not np.isfinite(mean):
+        return None
+    return mean
+
+
+def compute_label_anchor(
+    pts2d: np.ndarray, valid: np.ndarray, depth_cam: np.ndarray, near_plane: float
+) -> tuple[int, int] | None:
+    """人物ラベルの基準点（画像座標 (u, v) の整数）を返す（FR-008）。
+
+    候補は valid かつ depth_cam が有限かつ near_plane より大きい点。Head が候補ならその位置、
+    そうでなければ候補のうち v が最小の点（同値は添字の小さい方）。候補が無ければ None。
+    """
+    pts2d = np.asarray(pts2d, dtype=np.float64)
+    valid = np.asarray(valid, dtype=bool)
+    depth_cam = np.asarray(depth_cam, dtype=np.float64)
+    cand = valid & np.isfinite(depth_cam) & (depth_cam > near_plane)
+    if not cand.any():
+        return None
+    head = NAME_TO_IDX["Head"]
+    if cand[head]:
+        idx = head
+    else:
+        cand_idx = np.flatnonzero(cand)
+        idx = int(cand_idx[np.argmin(pts2d[cand_idx, 1])])
+    return int(round(pts2d[idx, 0])), int(round(pts2d[idx, 1]))
+
+
+def draw_person_labels(
+    image: np.ndarray, items: list[tuple[str, tuple[int, int]]]
+) -> np.ndarray:
+    """人物ラベル（白文字・黒縁取り）をまとめて描く。items が空なら image をそのまま返す。"""
+    if not items:
+        return image
+    img = image.copy()
+    for text, anchor in items:
+        (tw, _th), _ = cv2.getTextSize(text, LABEL_FONT, LABEL_FONT_SCALE, LABEL_THICKNESS)
+        org = (anchor[0] - tw // 2, anchor[1] - LABEL_OFFSET)  # 左下（ベースライン）
+        cv2.putText(img, text, org, LABEL_FONT, LABEL_FONT_SCALE, LABEL_OUTLINE_COLOR,
+                    LABEL_OUTLINE_THICKNESS, cv2.LINE_AA)
+        cv2.putText(img, text, org, LABEL_FONT, LABEL_FONT_SCALE, LABEL_COLOR,
+                    LABEL_THICKNESS, cv2.LINE_AA)
+    return img
+
+
 def start_ffmpeg(output_dir: str, width: int, height: int, fps: float):
     """rawvideo(rgb24) を受け取りMP4を書き出す ffmpeg プロセスを起動して返す。
 
@@ -772,8 +857,17 @@ def _yaml_floats3(value: str) -> list[float]:
         raise argparse.ArgumentTypeError(f"数値に変換できません: {value}") from e
 
 
+def _yaml_paths(value: str) -> list[str]:
+    """設定YAMLの keypoints_path 値（; 区切りのパス1個以上）を変換する（feat-037）。"""
+    parts = [p.strip() for p in value.split(";")]
+    if any(p == "" for p in parts):
+        raise argparse.ArgumentTypeError(
+            f"; 区切りのパスに空の要素があります（パスは1個以上必要）: {value!r}")
+    return parts
+
+
 CONFIG_CONVERTERS = {
-    "ply_path": str, "toml_path": str, "keypoints_path": str,
+    "ply_path": str, "toml_path": str, "keypoints_path": _yaml_paths,
     "camera": str, "output_dir": str,
     "near_plane": float, "occlusion_margin": float, "mp4_fps": float,
     "start_frame": int, "end_frame": int,
@@ -781,6 +875,7 @@ CONFIG_CONVERTERS = {
     "no_occlusion": _yaml_bool, "mp4": _yaml_bool, "no_png": _yaml_bool,
     "no_keypoints": _yaml_bool, "distort": _yaml_bool,
     "fps_frustum": _yaml_bool, "fps_camera": str, "fps_toml": str, "frustum_depth": float,
+    "fps_person": int,
 }
 
 
@@ -794,10 +889,11 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="3DGS PLYファイルパス（--config でも指定可）")
     parser.add_argument("toml_path", nargs="?", default=None,
                         help="キャリブレーションTOMLパス（--config でも指定可）")
-    parser.add_argument("keypoints_path", nargs="?", default=None,
-                        help="人体キーポイントファイルパス（C3D または NPZ。拡張子 .npz で NPZ と"
-                             "判別。Halpe26 + Spine/Thorax の既知28マーカー、欠損許容、"
-                             "全フレームを使用。--no-keypoints 時は省略）（--config でも指定可）")
+    parser.add_argument("keypoints_path", nargs="*", default=None,
+                        help="人体キーポイントファイルパス（1個以上。1ファイル=1人。2個以上の複数人指定は"
+                             " C3D のみ。1個のときは C3D または NPZ〔拡張子 .npz で NPZ と判別〕。"
+                             "Halpe26 + Spine/Thorax の既知28マーカー、欠損許容、全フレームを使用。"
+                             "--no-keypoints 時は省略）（--config でも指定可。設定YAMLでは ; 区切り）")
     parser.add_argument("--camera", default=None,
                         help="TOML内の対象カメラ名（--config でも指定可）")
     parser.add_argument("--near-plane", type=float, default=0.1,
@@ -838,6 +934,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frustum-depth", type=float, default=None,
                         help=f"視錐台の奥行き[m]（--fps-frustum 専用、default: "
                              f"{FRUSTUM_DEPTH_DEFAULT}）")
+    parser.add_argument("--fps-person", type=int, default=None,
+                        help="視錐台を描く人物番号（1始まり、キーポイントファイルの指定順。"
+                             "--fps-frustum 専用、default: 1）")
     parser.add_argument("--config", default=None,
                         help="設定YAML（フラット key: value）。優先順位は "
                              "CLI > 設定YAML > デフォルト。フラグ系（--no-occlusion/--mp4/"
@@ -931,7 +1030,7 @@ def main(argv=None) -> int:
 
     # --no-keypoints / keypoints_path / --distort の組み合わせ検証（重い処理前、--no-png単独チェックより前）
     if args.no_keypoints:
-        if args.keypoints_path is not None:
+        if args.keypoints_path:
             parser.error("--no-keypoints 指定時は keypoints_path を渡せません"
                          "（静止画モードはキーポイント入力不要）")
         forbidden = [("--mp4", args.mp4), ("--mp4-fps", args.mp4_fps is not None),
@@ -943,12 +1042,13 @@ def main(argv=None) -> int:
                      ("--fps-frustum", args.fps_frustum),
                      ("--fps-camera", args.fps_camera is not None),
                      ("--fps-toml", args.fps_toml is not None),
-                     ("--frustum-depth", args.frustum_depth is not None)]
+                     ("--frustum-depth", args.frustum_depth is not None),
+                     ("--fps-person", args.fps_person is not None)]
         for name, given in forbidden:
             if given:
                 parser.error(f"--no-keypoints 指定時は {name} は使用できません")
     else:
-        if args.keypoints_path is None:
+        if not args.keypoints_path:
             parser.error("keypoints_path を省略する場合は --no-keypoints を指定してください")
         if args.distort:
             parser.error("--distort は --no-keypoints と併用してください（動画モードは未対応）")
@@ -959,7 +1059,8 @@ def main(argv=None) -> int:
     if not args.fps_frustum:
         for name, given in [("--fps-camera", args.fps_camera is not None),
                             ("--fps-toml", args.fps_toml is not None),
-                            ("--frustum-depth", args.frustum_depth is not None)]:
+                            ("--frustum-depth", args.frustum_depth is not None),
+                            ("--fps-person", args.fps_person is not None)]:
             if given:
                 parser.error(f"{name} は --fps-frustum と併用してください")
     if args.frustum_depth is not None and (
@@ -967,10 +1068,25 @@ def main(argv=None) -> int:
     ):
         parser.error("--frustum-depth は 0 より大きい有限の値を指定してください")
 
+    # 複数人モード（キーポイントファイル2個以上）の検証（feat-037）。
+    # 静止画モード・--fps-frustum なしは上で終了済みのため、--fps-person 検査に届くのは動画モードのみ
+    n_persons = len(args.keypoints_path) if args.keypoints_path else 0
+    multi = n_persons >= 2
+    if multi:
+        npz_paths = [p for p in args.keypoints_path if p.lower().endswith(".npz")]
+        if npz_paths:
+            parser.error("複数人（キーポイントファイル2個以上）の指定は C3D のみ対応です"
+                         f"（NPZ: {', '.join(npz_paths)}）")
+    if args.fps_person is not None and not (1 <= args.fps_person <= n_persons):
+        parser.error(f"--fps-person は 1〜{n_persons} の整数を指定してください"
+                     f"（指定値: {args.fps_person}）")
+
     if args.occlusion_margin is None:
         args.occlusion_margin = OCCLUSION_MARGIN
     if args.frustum_depth is None:
         args.frustum_depth = FRUSTUM_DEPTH_DEFAULT
+    if args.fps_person is None:
+        args.fps_person = 1
 
     # --no-png 単独指定は出力が何もなくなるため、重い処理に入る前に拒否する
     if args.no_png and not args.mp4:
@@ -1012,61 +1128,138 @@ def main(argv=None) -> int:
         return _run_still_mode(args, cam)
 
     # キーポイントロード（全フレーム）・既知マーカー存在チェック（重いPLY/torchロード前に検証）
-    is_npz = args.keypoints_path.lower().endswith(".npz")
-    fmt = "NPZ" if is_npz else "C3D"
-    print(f"キーポイント読み込み中（{fmt}, 全フレーム）: {args.keypoints_path}")
-    try:
-        if is_npz:
-            labels, frames_data, point_rate = load_npz_all_frames(args.keypoints_path)
-        else:
-            labels, frames_data, point_rate = load_c3d_all_frames(args.keypoints_path)
-    except (ValueError, FileNotFoundError) as e:
-        print(e, file=sys.stderr)
-        return 1
-    # マーカー構成は入力全体で固定。既知マーカー0個なら描画対象がないため早期終了する
-    present = {name for name in KEYPOINT_NAMES if name in labels}
-
-    # FPS視錐台用の頭部7点構成チェック（--fps-frustum 指定時のみ、FR-007の6）。
-    # フレーム単位のNaN欠損とは区別し、構成に無い場合のみ早期エラーとする
-    if args.fps_frustum:
-        missing_head = [name for name in HEAD_JOINT_NAMES if name not in labels]
-        if missing_head:
-            print(
-                f"頭部マーカーが入力にありません（--fps-frustum に必須）: "
-                f"{', '.join(missing_head)}", file=sys.stderr,
-            )
+    if not multi:
+        # 1人モード: 既存の読み込み処理をそのまま使う（feat-036 時点と同一動作。FR-013）
+        kp_path = args.keypoints_path[0]
+        is_npz = kp_path.lower().endswith(".npz")
+        fmt = "NPZ" if is_npz else "C3D"
+        print(f"キーポイント読み込み中（{fmt}, 全フレーム）: {kp_path}")
+        try:
+            if is_npz:
+                labels, frames_data, point_rate = load_npz_all_frames(kp_path)
+            else:
+                labels, frames_data, point_rate = load_c3d_all_frames(kp_path)
+        except (ValueError, FileNotFoundError) as e:
+            print(e, file=sys.stderr)
             return 1
+        # マーカー構成は入力全体で固定。既知マーカー0個なら描画対象がないため早期終了する
+        present = {name for name in KEYPOINT_NAMES if name in labels}
 
-    if not present:
-        print(f"{fmt}に既知マーカーが1つもありません（labels: {', '.join(labels)}）",
-              file=sys.stderr)
-        return 1
-    missing = [name for name in KEYPOINT_NAMES if name not in present]
-    print(f"キーポイント: {len(present)}/{len(KEYPOINT_NAMES)} マーカーを描画対象とします")
-    if missing:
-        print(f"欠損マーカー（描画スキップ）: {', '.join(missing)}")
-    skeleton = build_skeleton(present)
-    total_frames = len(frames_data)
-    print(f"{fmt}: {total_frames} フレーム, rate={point_rate} Hz")
+        # FPS視錐台用の頭部7点構成チェック（--fps-frustum 指定時のみ、FR-007の6）。
+        # フレーム単位のNaN欠損とは区別し、構成に無い場合のみ早期エラーとする
+        if args.fps_frustum:
+            missing_head = [name for name in HEAD_JOINT_NAMES if name not in labels]
+            if missing_head:
+                print(
+                    f"頭部マーカーが入力にありません（--fps-frustum に必須）: "
+                    f"{', '.join(missing_head)}", file=sys.stderr,
+                )
+                return 1
+
+        if not present:
+            print(f"{fmt}に既知マーカーが1つもありません（labels: {', '.join(labels)}）",
+                  file=sys.stderr)
+            return 1
+        missing = [name for name in KEYPOINT_NAMES if name not in present]
+        print(f"キーポイント: {len(present)}/{len(KEYPOINT_NAMES)} マーカーを描画対象とします")
+        if missing:
+            print(f"欠損マーカー（描画スキップ）: {', '.join(missing)}")
+        skeleton = build_skeleton(present)
+        print(f"{fmt}: {len(frames_data)} フレーム, rate={point_rate} Hz")
+
+        # 対象フレームはファイル内の並び順のまま（並べ替えない）
+        frame_nos = [fr["frame_no"] for fr in frames_data]
+        persons = [{"index": 1, "path": kp_path, "labels": labels, "frames": list(frames_data),
+                    "present": present, "skeleton": skeleton}]
+    else:
+        # 複数人モード（C3Dのみ。feat-037）
+        persons = []
+        by_frames = []
+        rates = []
+        for k, kp_path in enumerate(args.keypoints_path, start=1):
+            print(f"P{k}: キーポイント読み込み中（C3D, 全フレーム）: {kp_path}")
+            try:
+                labels, frames_data, rate = load_c3d_all_frames(kp_path)
+            except (ValueError, FileNotFoundError) as e:
+                print(e, file=sys.stderr)
+                return 1
+            by_frame = {}
+            for fr in frames_data:
+                if fr["frame_no"] in by_frame:
+                    print(f"エラー: フレーム番号が重複しています: P{k}: {kp_path}: "
+                          f"frame {fr['frame_no']}", file=sys.stderr)
+                    return 1
+                by_frame[fr["frame_no"]] = fr
+            present = {name for name in KEYPOINT_NAMES if name in labels}
+            if not present:
+                print(f"C3Dに既知マーカーが1つもありません（P{k}: {kp_path}, "
+                      f"labels: {', '.join(labels)}）", file=sys.stderr)
+                return 1
+            missing = [name for name in KEYPOINT_NAMES if name not in present]
+            print(f"P{k}: キーポイント: {len(present)}/{len(KEYPOINT_NAMES)} "
+                  f"マーカーを描画対象とします")
+            if missing:
+                print(f"P{k}: 欠損マーカー（描画スキップ）: {', '.join(missing)}")
+            print(f"P{k}: C3D: {len(frames_data)} フレーム, rate={rate} Hz")
+            persons.append({"index": k, "path": kp_path, "labels": labels, "frames": None,
+                            "present": present, "skeleton": build_skeleton(present)})
+            by_frames.append(by_frame)
+            rates.append(rate)
+
+        # --fps-frustum 用の頭部マーカー構成チェック（対象人物のファイルのみ）
+        if args.fps_frustum:
+            fp_k = args.fps_person
+            fp = persons[fp_k - 1]
+            missing_head = [name for name in HEAD_JOINT_NAMES if name not in fp["labels"]]
+            if missing_head:
+                print(
+                    f"頭部マーカーが入力にありません（--fps-frustum に必須）: "
+                    f"P{fp_k}: {fp['path']}: {', '.join(missing_head)}", file=sys.stderr,
+                )
+                return 1
+
+        # point rate 一致検査（float の完全一致）
+        if any(r != rates[0] for r in rates):
+            print("エラー: キーポイントファイルの point rate が一致しません", file=sys.stderr)
+            for p, r in zip(persons, rates):
+                print(f"  P{p['index']}: {p['path']} rate={r} Hz", file=sys.stderr)
+            return 1
+        point_rate = rates[0]
+
+        # 対象フレーム = 全人物のフレーム番号の和集合（昇順）。欠席は None
+        frame_nos = sorted(set().union(*(bf.keys() for bf in by_frames)))
+        for p, bf in zip(persons, by_frames):
+            p["frames"] = [bf.get(f) for f in frame_nos]
+        print(f"人物数: {len(persons)}, 対象フレーム（和集合）: {len(frame_nos)} フレーム, "
+              f"rate={point_rate} Hz")
+
+    total_frames = len(frame_nos)
 
     # フレーム範囲フィルタ（入力フレーム番号ベース、両端含む。render.py と同方式）
     if args.start_frame is not None or args.end_frame is not None:
         start = args.start_frame if args.start_frame is not None else -float("inf")
         end = args.end_frame if args.end_frame is not None else float("inf")
-        frames_data = [fr for fr in frames_data if start <= fr["frame_no"] <= end]
-        if not frames_data:
+        keep = [i for i, f in enumerate(frame_nos) if start <= f <= end]
+        if not keep:
             print(f"エラー: 指定範囲 (start={args.start_frame}, end={args.end_frame}) に"
                   f"該当するフレームがありません", file=sys.stderr)
             return 1
-        print(f"フレーム範囲: {total_frames} フレーム中 {len(frames_data)} フレームを対象")
+        frame_nos = [frame_nos[i] for i in keep]
+        for p in persons:
+            p["frames"] = [p["frames"][i] for i in keep]
+        print(f"フレーム範囲: {total_frames} フレーム中 {len(frame_nos)} フレームを対象")
 
-    # FPS視錐台の事前計算（全フレーム一括、フレーム範囲フィルタ後のframes_dataとインデックスを揃える）
+    # FPS視錐台の事前計算（全フレーム一括、フレーム範囲フィルタ後のframe_nosとインデックスを揃える）
     frustum_verts = None
     frustum_valid = None
     if args.fps_frustum:
         print(f"FPS視錐台: カメラ {fps_cam['name']} ({fps_cam['width']}x{fps_cam['height']}), "
               f"奥行き {args.frustum_depth} m")
-        head_arr = collect_head_points(labels, frames_data)        # (F,7,3)
+        fp = persons[args.fps_person - 1]
+        # 欠席フレームは全マーカー無効のフレームとして渡し、視錐台を描かない（FR-009）
+        fps_frames = [fr if fr is not None else make_absent_frame(f, len(fp["labels"]))
+                      for f, fr in zip(frame_nos, fp["frames"])]
+        head_arr = collect_head_points(fp["labels"], fps_frames)   # (F,7,3)
         head_idx = {name: i for i, name in enumerate(HEAD_JOINT_NAMES)}
         c2w_b, frustum_valid, _ = compute_fps_poses(head_arr, head_idx)
         frustum_verts = compute_frustum_vertices(
@@ -1123,20 +1316,8 @@ def main(argv=None) -> int:
     # フレームループ。ffmpeg起動済みならクリーンアップを保証するため try/finally で囲む
     rc = 0
     try:
-        n = len(frames_data)
-        for i, fr in enumerate(frames_data):
-            kpts_mm, valid = extract_keypoints(labels, fr["data"], fr["residual"])
-            kpts_calib = c3d_to_calib(kpts_mm)
-            pts2d = project_keypoints(kpts_calib, cam)
-            if occlusion:
-                depth_cam = compute_keypoint_depth(kpts_calib, cam)
-                kp_visible = compute_visibility(
-                    pts2d, depth_cam, valid, depth_map, alpha_map,
-                    args.occlusion_margin, args.near_plane,
-                )
-            else:
-                kp_visible = np.ones(len(KEYPOINT_NAMES), dtype=bool)
-
+        n = len(frame_nos)
+        for i, frame_no in enumerate(frame_nos):
             # FPS視錐台（あれば）を背景に重ね描きしてからスケルトンを描く（視錐台が下）
             base = bgr_bg
             if frustum_verts is not None and frustum_valid[i]:
@@ -1145,16 +1326,60 @@ def main(argv=None) -> int:
                     args.occlusion_margin, args.near_plane, occlusion=occlusion,
                 )
 
-            overlay = draw_overlay(
-                base, kpts_calib, pts2d, valid, kp_visible, cam, skeleton,
-                depth_map, alpha_map, args.occlusion_margin, args.near_plane,
-                occlusion=occlusion,
-            )
+            entries = []
+            for p in persons:
+                fr = p["frames"][i]
+                if fr is None:
+                    continue  # 欠席
+                kpts_mm, valid = extract_keypoints(p["labels"], fr["data"], fr["residual"])
+                kpts_calib = c3d_to_calib(kpts_mm)
+                pts2d = project_keypoints(kpts_calib, cam)
+                depth_cam = compute_keypoint_depth(kpts_calib, cam)
+                if occlusion:
+                    kp_visible = compute_visibility(
+                        pts2d, depth_cam, valid, depth_map, alpha_map,
+                        args.occlusion_margin, args.near_plane,
+                    )
+                else:
+                    kp_visible = np.ones(len(KEYPOINT_NAMES), dtype=bool)
+                entries.append({"person": p, "kpts_calib": kpts_calib, "pts2d": pts2d,
+                                "valid": valid, "kp_visible": kp_visible,
+                                "depth_cam": depth_cam})
+
+            if multi:
+                # 奥（人物深度が大きい）の人物から描く。同値は人物番号順。有効点なしは描かない
+                drawable = []
+                for e in entries:
+                    d = compute_person_depth(e["depth_cam"], e["valid"])
+                    if d is not None:
+                        drawable.append((d, e))
+                drawable.sort(key=lambda t: (-t[0], t[1]["person"]["index"]))
+                ordered = [e for _, e in drawable]
+            else:
+                ordered = entries  # 1人モードは常に描画処理に渡す
+
+            overlay = base
+            for e in ordered:
+                overlay = draw_overlay(
+                    overlay, e["kpts_calib"], e["pts2d"], e["valid"], e["kp_visible"],
+                    cam, e["person"]["skeleton"], depth_map, alpha_map,
+                    args.occlusion_margin, args.near_plane, occlusion=occlusion,
+                )
+
+            if multi:
+                # 人物ラベルは全人物のスケルトンの後（最前面）。3DGS隠蔽に関係なく描く
+                items = []
+                for e in ordered:
+                    anchor = compute_label_anchor(
+                        e["pts2d"], e["valid"], e["depth_cam"], args.near_plane)
+                    if anchor is not None:
+                        items.append((f"P{e['person']['index']}", anchor))
+                overlay = draw_person_labels(overlay, items)
 
             # 連番PNG保存（--no-png 時はスキップ。cv2.imwrite は False 返却と
             # cv2.error 送出の2系統で失敗しうる）
             if not args.no_png:
-                png_path = os.path.join(output_dir, f"frame_{fr['frame_no']:06d}.png")
+                png_path = os.path.join(output_dir, f"frame_{frame_no:06d}.png")
                 try:
                     ok = cv2.imwrite(png_path, overlay)
                 except cv2.error as e:
@@ -1180,7 +1405,7 @@ def main(argv=None) -> int:
 
             # 進捗表示（--no-png 時は png_path が未定義のためフレーム番号で表示）
             if args.no_png:
-                print(f"  [{i + 1}/{n}] frame {fr['frame_no']} -> mp4")
+                print(f"  [{i + 1}/{n}] frame {frame_no} -> mp4")
             else:
                 suffix = " -> mp4" if ffmpeg_proc is not None else ""
                 print(f"  [{i + 1}/{n}] {png_path}{suffix}")
@@ -1202,7 +1427,7 @@ def main(argv=None) -> int:
         return rc
 
     if args.fps_frustum:
-        n_total = len(frames_data)
+        n_total = len(frame_nos)
         n_valid = int(np.count_nonzero(frustum_valid))
         if n_valid == n_total:
             print(f"FPS視錐台: {n_valid}/{n_total} フレームに描画")
@@ -1212,7 +1437,7 @@ def main(argv=None) -> int:
                   f"（頭部キーポイント欠損・縮退により {n_invalid} フレームは非描画）")
 
     elapsed = time.time() - start_time
-    print(f"\n完了: {output_dir} ({len(frames_data)} フレーム, {elapsed:.1f}秒)")
+    print(f"\n完了: {output_dir} ({len(frame_nos)} フレーム, {elapsed:.1f}秒)")
     if mp4_path is not None:
         print(f"MP4保存: {mp4_path}")
     return 0

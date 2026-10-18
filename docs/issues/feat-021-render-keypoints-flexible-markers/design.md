@@ -1,5 +1,9 @@
 # feat-021 機能設計書: render_keypoints.py 欠損マーカー許容（22点C3D対応）
 
+> **bug-005 による変更（2026-10-18）**
+> - 無効サンプルの定義に「座標が厳密に (0,0,0)」を追加した（Pose2Sim 出力C3Dの欠損表現。詳細は `docs/issues/bug-005-render-keypoints-zero-coord-missing/investigation.md`）。本文の定義・判定式・`valid` の説明は追記済み
+> - 本文中の「変更前（`extract_halpe26` / feat-021 以前の実装）と同一・同値・バイト一致」を求める要件と検証（要求仕様書 FR-001 受け入れ基準2 の (a)(b) と実データPNGのバイト一致、非機能要求の性能比較、機能設計書「2. テスト設計」の同値・一致の確認）は、**座標が厳密に (0,0,0) のサンプルを含まない入力**に限って適用する。(0,0,0) のサンプルを含む入力の期待動作（その点を無効として描画しない）は bug-005 の investigation.md 1.5 で検証する
+
 ## 1.1 対応要求マッピング
 
 要求仕様書: `docs/issues/feat-021-render-keypoints-flexible-markers/requirements.md`
@@ -76,7 +80,8 @@ def extract_keypoints(
 - `kpts`: `(28, 3)` float64、mm。欠損マーカーの行は `0.0` で埋める
   （`NaN` は使わない。`project_keypoints` の `nan_to_num` に依存せず決定的にする）
 - `valid`: `(28,)` bool。欠損マーカーは常に `False`。存在するマーカーは
-  既存と同じ規則（`residual >= 0` かつ座標に NaN なし）
+  既存と同じ規則（`residual >= 0` かつ座標に NaN なし）に加え、座標が厳密に (0,0,0) でないこと
+  （(0,0,0) の条件は bug-005 で追加）
 
 **処理ロジック**（擬似コード）:
 
@@ -88,7 +93,7 @@ for i, name in enumerate(KEYPOINT_NAMES):
         continue                          # 欠損: kpts=0, valid=False のまま
     idx = name_to_c3d_idx[name]
     kpts[i] = data[idx]
-    valid[i] = residual[idx] >= 0 and not isnan(data[idx]).any()
+    valid[i] = residual[idx] >= 0 and not isnan(data[idx]).any() and not all(data[idx] == 0)   # (0,0,0) 判定は bug-005 で追加
 return kpts, valid
 ```
 

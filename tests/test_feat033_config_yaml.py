@@ -350,7 +350,7 @@ def test_backward_compat_no_config():
 
     assert args.ply_path == "dummy.ply"
     assert args.toml_path == toml
-    assert args.keypoints_path == "dummy.npz"
+    assert args.keypoints_path == ["dummy.npz"]
     assert args.camera == "camA"
     assert args.near_plane == pytest.approx(0.1)
     assert args.output_dir is None
@@ -429,7 +429,7 @@ def test_positional_partial_override(tmp_path):
     args = parse_args_with_config(["--config", str(cfg), "override.ply"])
     assert args.ply_path == "override.ply"
     assert args.toml_path == toml  # YAML由来のまま
-    assert args.keypoints_path == "dummy.npz"  # YAML由来のまま
+    assert args.keypoints_path == ["dummy.npz"]  # YAML由来のまま
 
 
 # ========================================
