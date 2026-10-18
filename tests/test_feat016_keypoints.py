@@ -123,7 +123,7 @@ class TestExtractKeypoints:
         """既知マーカーが不足しても例外を投げず、欠損マーカーは valid False（feat-021）"""
         labels = list(HALPE26_NAMES)
         labels[0] = "Unknown"  # "Hip" が欠ける
-        data = np.zeros((26, 3))
+        data = np.ones((26, 3))
         residual = np.zeros(26)
         kpts, valid = extract_keypoints(labels, data, residual)
         assert not valid[KEYPOINT_NAMES.index("Hip")]

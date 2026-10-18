@@ -442,7 +442,9 @@ def extract_keypoints(
 ) -> tuple[np.ndarray, np.ndarray]:
     """ラベルから既知マーカー28点を抽出し、(28,3) 座標と (28,) 有効フラグを返す。
 
-    有効 = マーカーがC3Dに存在し、residual >= 0 かつ 座標にNaNを含まない。
+    有効 = マーカーがC3Dに存在し、residual >= 0 かつ 座標にNaNを含まず、
+    かつ 座標が厳密に (0,0,0) でない。Pose2Sim 出力C3Dは欠損を residual 0・座標 (0,0,0)
+    で書くため、(0,0,0) も欠損として扱う（bug-005）。
     C3Dに存在しない既知マーカーは valid=False・座標 0.0 とする（欠損許容。例外は投げない）。
     """
     name_to_c3d_idx = {name: i for i, name in enumerate(labels)}
@@ -455,7 +457,8 @@ def extract_keypoints(
         idx = name_to_c3d_idx[name]
         coord = data[idx]
         kpts[i] = coord
-        valid[i] = bool(residual[idx] >= 0) and not bool(np.isnan(coord).any())
+        valid[i] = (bool(residual[idx] >= 0) and not bool(np.isnan(coord).any())
+                    and not bool(np.all(coord == 0.0)))
     return kpts, valid
 
 

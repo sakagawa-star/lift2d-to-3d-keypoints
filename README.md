@@ -203,7 +203,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `filter_c3d.py` | C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相） |
 | `filter_npz.py` | NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要） |
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
-| `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き / 静止画モード |
+| `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き（複数人対応） / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
 | `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知） |
 | `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング） |
@@ -302,14 +302,21 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render.py data/project.ply data/FPS
 
 2つのモードがある。
 
-**動画モード**（`keypoints_path` を渡す）: キャリブTOMLのカメラで3DGSをレンダリングし、人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容）をオクルージョン考慮で全フレーム重ね描きする。キーポイント入力は **C3D と NPZ の両対応**（feat-032。拡張子 `.npz`〔大小無視〕で NPZ と判別、それ以外は C3D）。NPZ は `npz_to_c3d.py` 入力と同一フォーマット（`x3d_world` world座標[m]）を直接読むため事前変換は不要。NPZ の `pnp_ok` は参照せず全フレーム描画する（NaN の関節のみ描画スキップ）。出力は連番PNG（`frame_<フレーム番号:06d>.png`。フレーム番号は C3D では frame_no、NPZ では絶対 `frame_ids`）と `--mp4` 指定時のMP4。
+**動画モード**（`keypoints_path` を渡す）: キャリブTOMLのカメラで3DGSをレンダリングし、人体キーポイント（Halpe26 + Spine/Thorax の既知28マーカー、欠損許容）をオクルージョン考慮で全フレーム重ね描きする。欠損として描画スキップする点は、C3D の residual < 0・NaN・座標が厳密に (0,0,0) の点（(0,0,0) は Pose2Sim 出力C3Dの欠損表現。bug-005）。キーポイント入力は **C3D と NPZ の両対応**（feat-032。拡張子 `.npz`〔大小無視〕で NPZ と判別、それ以外は C3D）。NPZ は `npz_to_c3d.py` 入力と同一フォーマット（`x3d_world` world座標[m]）を直接読むため事前変換は不要。NPZ の `pnp_ok` は参照せず全フレーム描画する（NaN の関節のみ描画スキップ）。出力は連番PNG（`frame_<フレーム番号:06d>.png`。フレーム番号は C3D では frame_no、NPZ では絶対 `frame_ids`）と `--mp4` 指定時のMP4。
 
 `--fps-frustum` を付けると、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）から計算した FPSカメラ（一人称視点。`render_fps_video.py` と同一の数式、視点=両目中点）の**視錐台ワイヤフレーム**（マゼンタ、稜線4本+遠端矩形4辺）をオクルージョン考慮で重ね描きする（feat-034）。FOV は `--fps-camera` で指定した TOML カメラの K・解像度から決まり、`--fps-toml` で別TOMLファイルを指定できる（省略時は `toml_path` から検索）。奥行きは `--frustum-depth`（既定 0.5m）の固定打ち切り長。頭部7点がマーカー構成に無い入力はエラー、フレーム単位の欠損・縮退はそのフレームのみ視錐台を描かず継続する（終了時に描画フレーム数のサマリを表示）。
+
+**複数人**（feat-037）: 位置引数 `keypoints_path` に **1人1ファイル**で C3D を複数並べると、同じ3DGS背景に全員のスケルトンを重ね描きする（指定順に P1, P2, …。位置引数はオプションより前に連続して書く）。複数人の指定は **C3D のみ**（NPZ が混ざると終了コード2。NPZ は1人のときのみ）で、全ファイルの point rate が一致しない場合は終了コード1。出力フレームは全員のフレーム番号の和集合（`--start-frame` / `--end-frame` はこの和集合に適用）で、そのフレームにデータが無い人物は描かない。人物同士の前後は、有効点のカメラ深度の平均が大きい（奥の）人物から描く（関節単位の人物間隠蔽はしない。3DGS とのオクルージョンは人物ごとに従来どおり）。複数人のときは各人物の頭部（Head、無ければ画像上で最も上の有効点）の上に白文字・黒縁の `P<番号>` ラベルを常に描く（基準点が画面外ならラベルも画面外で切り取られる）。1ファイルのときは従来と出力が同一でラベルは描かない。`--fps-frustum` の視錐台は `--fps-person`（既定 1）で指定した1人だけ描く。
 
 ```bash
 # C3D 入力
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
     data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/Blender/keypoints.c3d \
+    --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
+
+# 複数人（feat-037。1人1 C3D、指定順に P1, P2）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
+    data/Blender/point_cloud.ply data/Blender/Config_scene.toml data/patient.c3d data/staff.c3d \
     --camera cam41520554 --near-plane 0.5 --output-dir /tmp/keypoints --mp4
 
 # NPZ 入力（拡張子を .npz にするだけ。それ以外のオプションは同一）
@@ -357,11 +364,12 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \
 | `--fps-camera` | なし | 視錐台のFOVに使うTOML内カメラ名（`--fps-frustum` 専用） | 動画のみ |
 | `--fps-toml` | `toml_path` と同じ | `--fps-camera` を検索するTOMLファイル（`--fps-frustum` 専用） | 動画のみ |
 | `--frustum-depth` | `0.5` | 視錐台の奥行き[m]（`--fps-frustum` 専用。有限かつ0より大きい値のみ） | 動画のみ |
+| `--fps-person` | `1` | 視錐台を描く人物番号（1始まり、キーポイントファイルの指定順。1〜人数の整数。`--fps-frustum` 専用） | 動画のみ |
 | `--config` | なし | 設定YAML（フラット `key: value`。feat-029 と同方式）。優先順位は CLI 明示指定 > 設定YAML > 既定値 | 両方 |
 
 静止画モードで動画専用オプションを指定するとエラー（終了コード2）になる。
 
-**設定YAML（`--config`。feat-033）**: 位置引数を含む全オプションを YAML に書ける（設定キーは CLI オプション名のハイフンをアンダースコアに置換した名前。位置引数は `ply_path` / `toml_path` / `keypoints_path`）。必須項目（`ply_path` / `toml_path` / `camera`）は CLI か YAML のどちらかで指定すればよい。フラグ系（`no_occlusion` / `mp4` / `no_png` / `no_keypoints` / `distort` / `fps_frustum`）は `true` / `false`（小文字のみ）で書き、CLI からは true 方向のみ上書き可（YAML の `true` を false に戻すには YAML を編集する）。`background` はスペース区切り3値。未知キー・型不正はキー名つきエラー（終了コード2）になる。
+**設定YAML（`--config`。feat-033）**: 位置引数を含む全オプションを YAML に書ける（設定キーは CLI オプション名のハイフンをアンダースコアに置換した名前。位置引数は `ply_path` / `toml_path` / `keypoints_path`）。必須項目（`ply_path` / `toml_path` / `camera`）は CLI か YAML のどちらかで指定すればよい。フラグ系（`no_occlusion` / `mp4` / `no_png` / `no_keypoints` / `distort` / `fps_frustum`）は `true` / `false`（小文字のみ）で書き、CLI からは true 方向のみ上書き可（YAML の `true` を false に戻すには YAML を編集する）。`background` はスペース区切り3値。`keypoints_path` は複数人のとき `;`（半角セミコロン）区切りで1行に並べる（例: `keypoints_path: a.c3d; b.c3d`。前後の空白は無視、`;` を含まない値は空白入りパスも含め従来どおり1個のパス。末尾 `;`・`;;`・空値は終了コード2。CLI で位置引数のキーポイントを渡すと YAML 側は丸ごと置き換え）。未知キー・型不正はキー名つきエラー（終了コード2）になる。
 
 ```yaml
 # run_keypoints.yaml の例（プロジェクトルートから実行する場合のパス）
@@ -377,6 +385,9 @@ no_png: true
 fps_frustum: true
 fps_toml: phase4/data/Calib_FPSCamera.toml
 fps_camera: FPSCamera
+# 複数人（feat-037。任意）: keypoints_path を ; 区切りにし、視錐台の対象人物を指定
+#keypoints_path: phase4/data/patient.c3d; phase4/data/staff.c3d
+#fps_person: 2
 ```
 
 ```bash
