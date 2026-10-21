@@ -4,6 +4,19 @@
 
 ### 2026-10-21
 
+- **feat-040**: render_fps_video.py のフレーム範囲指定（start_frame / end_frame）
+  - `--start-frame` / `--end-frame`（設定YAML `start_frame` / `end_frame`）を追加し、MP4 モードとポーズダンプモードで処理するフレームを NPZ の `frame_ids` 基準（両端含む）で絞り込めるようにした。片方だけの指定も可
+  - 指定範囲が `frame_ids` からはみ出した場合は重なる部分だけを対象にし（例: frame_ids 1〜54007 で 0〜900 → 1〜900）、重なりが無い・start > end は終了コード1。範囲指定時は対象フレーム数と実範囲を表示。絞り込みは NPZ 読み込み後・`compute_fps_poses` の前に行い、チャンク分割・manifest・黒画面・情報ファイルは対象フレームだけを入力として従来規則で作る（`--gpus` 併用可）
+  - `--output` 省略時の既定名に実範囲を入れる（`<NPZ名>_fps_<最小>-<最大>.mp4`）。範囲指定なしは従来どおり `<NPZ名>_fps.mp4`。`--still-range` との併用は終了コード2
+  - 追加関数は `select_frame_range` / `range_output_name` のみで、既存関数のシグネチャ・動作は不変。範囲指定なしの動作は従来と同一（既存テストの期待値変更なし）
+  - テスト: `tests/test_feat040_frame_range.py` 新規22件、全体 634 passed / 1 skipped（`tests/results/feat-040_test_result.txt`）。実データ（tokyo person1 NPZ）でダンプ 0〜900 → 900フレーム（frame_id 1〜900）、MP4 1〜300 → 300フレーム・情報ファイル総フレーム数300を確認。Codex レビューは反復 codex-01（高1: 正常終了後の同一出力先再実行で上書きされる件を既存挙動として明記しテスト追加）、解消確認 codex-02、全文ゲート codex-03（高・中・低ゼロ）で収束。実装は Sonnet サブエージェント委任。手動テスト合格（2026-10-21）
+
+- **feat-039**: C3D → NPZ 変換スクリプト
+  - 新規 `phase4/c3d_to_npz.py`。C3D（1ファイル=1人分）を `render_fps_video.py` が受け付ける NPZ（`x3d_world` (F,J,3) float64 [m] / `frame_ids` int64 / `joint_names`）に変換する。座標変換は `render_keypoints.c3d_to_calib` と同一（`(pz, px, py) × 0.001`）、読み込みは `render_keypoints.load_c3d_all_frames` を再利用。全マーカー・全フレームを書き出し、`frame_ids` は C3D フレーム番号をそのまま使う（Pose2Sim 出力は 1 始まり。tokyo 20261006 は 1〜54007）
+  - 欠損点（residual が 0 以上でない・座標に NaN・座標が厳密に (0,0,0)）は NaN にする（bug-005 と同じ判定）。欠損点数と内訳を表示し、頭部7点が欠けている場合は警告のみで変換は行う
+  - 出力は既定で入力と同じ場所の `.npz`（`--output` で指定可）。一時ファイル（`mkstemp` で出力と同じディレクトリに一意名）へ書き出し、読み戻し検証に成功した場合だけ `os.replace` で確定。入力エラー（不存在・読めない・フレーム/マーカー0件・マーカー名の重複/空・途中で切れた C3D）は終了コード1
+  - テスト: `tests/test_feat039_c3d_to_npz.py` 新規26件、全体 612 passed / 1 skipped（`tests/results/feat-039_test_result.txt`）。実データ（tokyo person1 C3D、54007 フレーム × 26 マーカー）で変換し、欠損 163275 点（すべて (0,0,0)）を NaN 化、feat-040 と合わせて FPS 動画の生成を手動テストで確認。Codex レビューは反復 codex-01（高1: 途中で切れた C3D の未検出、中1: 確定処理の例外処理範囲）、解消確認 codex-02、全文ゲート codex-03（高2: 固定一時ファイル名・YAML パスの移動）、解消確認 codex-04 で収束。実装は Sonnet サブエージェント委任。手動テスト合格（2026-10-21）
+
 - **feat-038**: render_keypoints.py 複数人全員のFPS視錐台の同時描画
   - `--fps-person` / 設定YAML `fps_person` に `all`（小文字の完全一致のみ）を追加し、全人物の FPS視錐台を同じ画像に同時に描けるようにした。変換関数 `_fps_person_value` を CLI の type と設定YAMLの変換に共用。内部では視錐台対象人物の番号リスト `fps_targets` に正規化し、人物ごとに視錐台を事前計算（`frustums`）、フレームループで `draw_frustum` を人物番号順に連鎖して描く（視錐台はスケルトン・ラベルより下）
   - 全員マゼンタ・FOV/奥行きは全員共通（ヒアリング確定事項）。欠席・頭部欠損のフレームはその人物の視錐台だけ非描画。全員指定時は頭部マーカー不足の人物を全員分表示して終了コード1（読み込みループ内の既存検査は従来どおり最初の1件で終了）。対象が2人以上のときは開始時に対象人物一覧、終了時サマリを `FPS視錐台 P<番号>:` で人物ごとに表示

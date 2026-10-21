@@ -14,6 +14,14 @@ render.py）を廃止し、手動作業ゼロで長時間データをバッチ�
 ポーズダンプモード（GPU不要）:
   uv run --project phase4 python render_fps_video.py <PLY> <NPZ> \\
       --toml <TOML> --camera <カメラ名> --fps 30 --dump-poses poses.json
+
+フレーム範囲指定（feat-040。MP4 / ポーズダンプモード）: --start-frame / --end-frame
+（設定YAMLでは start_frame / end_frame）で NPZ の frame_ids の範囲（両端含む）を指定する。
+はみ出した部分は無視し、重なりが無ければエラー。--output 省略時の MP4 名は
+<NPZ名>_fps_<最小>-<最大>.mp4（実際に出力した範囲）。--still-range とは併用不可:
+  TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python render_fps_video.py \\
+      data/<PLY> data/<NPZ> --toml data/<TOML> --camera <カメラ名> --fps 30 \\
+      --start-frame 1 --end-frame 900
 """
 
 import argparse
@@ -585,6 +593,28 @@ def format_frame_ranges(fids: list[int]) -> str:
     return ", ".join(ranges)
 
 
+def select_frame_range(frame_ids: np.ndarray, start_frame: int | None,
+                       end_frame: int | None) -> np.ndarray:
+    """frame_ids が指定範囲（両端含む）に入る要素が True の (F,) bool マスクを返す。
+
+    start_frame / end_frame が None の側は無制限。start > end のときは全要素 False。
+    """
+    mask = np.ones(len(frame_ids), dtype=bool)
+    if start_frame is not None:
+        mask &= frame_ids >= start_frame
+    if end_frame is not None:
+        mask &= frame_ids <= end_frame
+    return mask
+
+
+def range_output_name(npz_path: str, fid_first: int, fid_last: int) -> str:
+    """範囲指定時の既定MP4パス（<NPZ名>_fps_<最小>-<最大>.mp4）を返す。"""
+    return os.path.join(
+        os.path.dirname(os.path.abspath(npz_path)),
+        f"{os.path.splitext(os.path.basename(npz_path))[0]}_fps_{fid_first}-{fid_last}.mp4",
+    )
+
+
 def build_info_text(video_name: str, elapsed_sec: float, render_avg: str,
                     total_frames: int, fps: float, nan_fids: list[int],
                     degen_fids: list[int], width: int, height: int) -> str:
@@ -727,6 +757,7 @@ CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
     "chunk_size": _positive_int, "crf": _crf_int,
     "overwrite": _yaml_bool, "keep_chunks": _yaml_bool,
     "still_range": _yaml_still_range,
+    "start_frame": int, "end_frame": int,
 }
 
 
@@ -853,6 +884,11 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="静止画モードのPNG出力ディレクトリ（--still-range時必須）")
     parser.add_argument("--dump-poses", default=None,
                         help="ポーズダンプモード（排他）の出力JSONパス")
+    parser.add_argument("--start-frame", type=int, default=None,
+                        help="処理する最初の frame_id（NPZ の frame_ids 基準、この番号を含む。"
+                             "MP4 / --dump-poses 用。省略時: NPZ の最初。--still-range と併用不可）")
+    parser.add_argument("--end-frame", type=int, default=None,
+                        help="処理する最後の frame_id（同、この番号を含む。省略時: NPZ の最後）")
     parser.add_argument(
         "--config", default=None,
         help="設定YAML（フラット key: value）。優先順位は CLI > 設定YAML > デフォルト。"
@@ -1329,6 +1365,10 @@ def main(argv=None) -> int:
     if args.still_range is not None and args.dump_poses is not None:
         parser.error("--still-range と --dump-poses は同時指定できません")
 
+    range_given = args.start_frame is not None or args.end_frame is not None
+    if args.still_range is not None and range_given:
+        parser.error("--still-range と --start-frame / --end-frame は同時指定できません")
+
     exclusive_mode = args.still_range is not None or args.dump_poses is not None
     if exclusive_mode:
         for name, given in [("--output", args.output is not None),
@@ -1358,12 +1398,12 @@ def main(argv=None) -> int:
 
     output_path = args.output
     if mp4_mode:
-        if output_path is None:
+        if output_path is None and not range_given:
             output_path = os.path.join(
                 os.path.dirname(os.path.abspath(args.npz_path)),
                 os.path.splitext(os.path.basename(args.npz_path))[0] + "_fps.mp4",
             )
-        if os.path.splitext(output_path)[1].lower() != ".mp4":
+        if output_path is not None and os.path.splitext(output_path)[1].lower() != ".mp4":
             print(f"エラー: --output の拡張子が .mp4 ではありません: {output_path}",
                  file=sys.stderr)
             return 1
@@ -1426,6 +1466,25 @@ def main(argv=None) -> int:
 
     print(f"NPZ読み込み: {args.npz_path}")
     print(f"  フレーム数 F={F}, 関節数 J={J}, frame_ids {int(frame_ids[0])}〜{int(frame_ids[-1])}")
+
+    # フレーム範囲の絞り込み（feat-040）
+    if range_given:
+        mask = select_frame_range(frame_ids, args.start_frame, args.end_frame)
+        n_sel = int(np.count_nonzero(mask))
+        if n_sel == 0:
+            print(f"エラー: 指定範囲 (start={args.start_frame}, end={args.end_frame}) に"
+                  f"該当するフレームがありません（NPZ の frame_ids: "
+                  f"{int(frame_ids[0])}〜{int(frame_ids[-1])}）", file=sys.stderr)
+            return 1
+        F_all = F
+        x3d_world = x3d_world[mask]
+        frame_ids = frame_ids[mask]
+        F = n_sel
+        print(f"フレーム範囲: {F_all} フレーム中 {F} フレームを対象"
+              f"（frame_ids {int(frame_ids[0])}〜{int(frame_ids[-1])}）")
+
+    if mp4_mode and output_path is None:
+        output_path = range_output_name(args.npz_path, int(frame_ids[0]), int(frame_ids[-1]))
 
     # カメラポーズ計算（全フレーム事前計算。ADR-6）
     c2w_b, valid, invalid_reasons = compute_fps_poses(x3d_world, head_idx)

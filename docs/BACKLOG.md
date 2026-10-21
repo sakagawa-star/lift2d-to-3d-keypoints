@@ -50,6 +50,8 @@
 | feat-037 | 機能追加 | render_keypoints.py 複数人の3Dキーポイント重ね描き（1人1 C3D、P番号ラベル、奥の人物から描画） | Closed |
 | bug-005 | 不具合 | render_keypoints.py が座標 (0,0,0) の欠損マーカー（Pose2Sim 出力C3D）を有効点として描画する | Closed |
 | feat-038 | 機能追加 | render_keypoints.py 複数人全員のFPS視錐台の同時描画（--fps-person all） | Closed |
+| feat-039 | 機能追加 | C3D → NPZ 変換スクリプト（render_fps_video.py で C3D 由来のキーポイントを使うため） | Closed |
+| feat-040 | 機能追加 | render_fps_video.py のフレーム範囲指定（start_frame / end_frame） | Closed |
 
 ## ステータス凡例
 

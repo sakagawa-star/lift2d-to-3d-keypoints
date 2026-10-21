@@ -190,7 +190,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 - **CUDA GPU 必須**（render.py / render_keypoints.py / render_fps_video.py）。gsplat の CUDA 拡張が初回実行時に JIT コンパイルされるため、環境変数 **`TORCH_CUDA_ARCH_LIST="9.0+PTX"` を必ず付ける**（理由の詳細は CLAUDE.md 参照）
 - `render_fps_video.py` の MP4 モードは **ffmpeg / ffprobe（libx264 エンコーダが有効なビルド）も必須**（開始前に検査され、なければエラー終了）
 - `camera_pose.py` / `fps_camera_pose.py` は Blender 内スクリプト（`blender -b ... --python ...` で実行。fps_camera_pose.py は Blender 4.5.5）
-- `npz_to_c3d.py` / `filter_c3d.py` / `filter_npz.py` は Blender・GPU 不要（render_fps_video.py の `--dump-poses` モードも GPU 不要）
+- `npz_to_c3d.py` / `c3d_to_npz.py` / `filter_c3d.py` / `filter_npz.py` は Blender・GPU 不要（render_fps_video.py の `--dump-poses` モードも GPU 不要）
 - データファイル（PLY・ポーズJSON・C3D・.blend）は `phase4/data/` に置く（git管理外）
 
 ### スクリプト一覧
@@ -200,13 +200,14 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `camera_pose.py` | Blenderカメラのポーズ（c2w）をJSONに書き出し |
 | `fps_camera_pose.py` | FPS頭部追従カメラのポーズ書き出し（ヘッドレスでも向きを計算） |
 | `npz_to_c3d.py` | リフトアップ済み3DキーポイントNPZ → C3D 変換（Blender取り込み対応） |
+| `c3d_to_npz.py` | C3D（1人分）→ NPZ 変換（`render_fps_video.py` の入力用） |
 | `filter_c3d.py` | C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相） |
 | `filter_npz.py` | NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要） |
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き（複数人対応） / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
 | `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知） |
-| `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング） |
+| `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング、`--start-frame` / `--end-frame` でフレーム範囲指定） |
 
 ### camera_pose.py（カメラポーズ書き出し）
 
@@ -247,6 +248,24 @@ uv run python npz_to_c3d.py data/session001_world_22pt.npz
 |---|---|---|
 | `--output` | `<入力>.c3d` | 出力C3Dパス |
 | `--fps` | `30.0` | フレームレート（C3D point rate） |
+
+### c3d_to_npz.py（C3D→NPZ変換。feat-039）
+
+C3D（1ファイル=1人分。Pose2Sim 出力・`npz_to_c3d.py` 出力のどちらも可）を、`render_fps_video.py` の入力 NPZ（`npz_to_c3d.py` 入力と同一フォーマット: `x3d_world` world座標[m]・`frame_ids`・`joint_names`）に変換する。
+
+- 座標変換は `render_keypoints.py` と同一（C3D raw `(px, py, pz)`[mm] → `(pz, px, py) × 0.001`[m]）。C3D の全マーカー・全フレームを書き出す
+- `frame_ids` は C3D のフレーム番号をそのまま使う（Pose2Sim 出力は 1 始まり。ファイル名の 0 始まりの番号とは 1 ずれる）
+- 欠損点（residual が 0 以上でない・座標に NaN・座標が厳密に (0,0,0)）は NaN にする。頭部7点が無い C3D は警告のみで変換する
+- 一時ファイルに書き出して読み戻し検証後に確定する（失敗時に不完全な NPZ を残さない）。途中で切れた C3D・マーカー名の重複などはエラー（終了コード1）
+
+```bash
+uv run python c3d_to_npz.py data/person1.c3d                              # → data/person1.npz
+uv run python c3d_to_npz.py data/person1.c3d --output data/person1_world.npz
+```
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--output` | `<入力>.npz` | 出力NPZパス（拡張子 `.npz` 必須。既存ファイルは上書き） |
 
 ### filter_c3d.py（C3D時間方向平滑化）
 
@@ -435,7 +454,7 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extr
 - 事前準備: `uv sync --project matcher_lab` に加え、MASt3R のリポジトリ（`~/git/mast3r`）とチェックポイント（`~/data/models/mast3r/`）、LoFTR 重み（refine_extrinsics.py と共通）が必要
 - 処理時間の目安: 初回はペアマッチ28ペア + アンカー8台の生成で数十分、中間NPZキャッシュ再利用時は10分前後（RTX 5060 Ti 実測。BA 本体は約4分）
 
-### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030/031）
+### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030/031/040）
 
 リフトアップ済み3DキーポイントNPZ（`npz_to_c3d.py` 入力と同一フォーマット。`filter_npz.py` で平滑化済みを想定）から、頭部7点（LEye/REye/LEar/REar/Nose/Head/Neck）でFPSカメラポーズを計算し、3DGS（PLY）をレンダリングして1本のMP4を生成する。Blender・C3D 工程は不要。頭部7点が `joint_names` にない NPZ はエラー終了する。
 
@@ -445,6 +464,7 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extr
 - チャンク（既定10000フレーム）単位の区間MP4で生成して最後に連結。中断後は同じコマンドの再実行で完成済みチャンクをスキップして再開（破損チャンクは ffprobe 検査で検出して作り直し。パラメータ変更時はエラー、`--overwrite` で作り直し）
 - `--gpus` でチャンクを複数ワーカープロセスに動的分配して並列レンダリング（feat-030）。カンマ区切りリストの要素数=ワーカー数、各要素=そのワーカーのGPU ID（同一IDの繰り返しで同一GPUに複数ワーカー可）。未指定なら従来どおり直列。直列⇔並列をまたぐ再開可。ワーカー失敗時は即時中止（完成済みチャンクは保持され再実行で再開）
 - MP4 生成成功時に `<MP4名>_info.txt`（例: `test_fps.mp4` → `test_fps_info.txt`）を自動保存（feat-031）。記載: 動画ファイル名・総所要時間・描画フレーム平均・総フレーム数・フレームレート・NaN黒フレーム数/番号・縮退黒フレーム数/番号・解像度。黒フレーム番号は frame_id 基準の連続区間圧縮（0件は `なし`）
+- `--start-frame` / `--end-frame` で MP4 / ポーズダンプの対象を NPZ の frame_id 範囲（両端含む）に絞れる（feat-040）。範囲が frame_ids からはみ出した分は無視し、重なりが無ければエラー。`--output` 省略時の出力名は実際の範囲入りの `<NPZ名>_fps_<最小>-<最大>.mp4`
 
 ```bash
 # MP4 生成
@@ -454,6 +474,10 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py data/<PLY> data
 # 並列レンダリング（feat-030。例: GPU 0 に2ワーカー。単一GPUで実測 約1.47倍）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py data/<PLY> data/<NPZ> \
     --toml data/Calib_FPSCamera.toml --camera FPSCamera --fps 30 --gpus 0,0
+
+# フレーム範囲指定（feat-040。frame_id 1〜900 → <NPZ名>_fps_1-900.mp4）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py data/<PLY> data/<NPZ> \
+    --toml data/Calib_FPSCamera.toml --camera FPSCamera --fps 30 --start-frame 1 --end-frame 900
 
 # 設定YAMLで実行（feat-029。CLI 指定が YAML を上書き）
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_fps_video.py --config data/run_fps.yaml
@@ -467,13 +491,14 @@ uv run python render_fps_video.py data/<PLY> data/<NPZ> --toml <TOML> --camera <
 | `--toml` | （必須※） | Calib_scene.toml 型 TOML パス |
 | `--camera` | （必須※) | TOML 内のカメラ名 |
 | `--fps` | （必須※） | フレームレート（NPZに記録がないため必須） |
-| `--output` | `<NPZ名>_fps.mp4` | 最終MP4パス（NPZと同ディレクトリ） |
+| `--output` | `<NPZ名>_fps.mp4` | 最終MP4パス（NPZと同ディレクトリ。範囲指定時は `<NPZ名>_fps_<最小>-<最大>.mp4`） |
 | `--gpu` | `0` | 直列モードで使用するGPU ID（単一。`--gpus` と併用不可） |
 | `--gpus` | なし | 並列モード。ワーカーのGPU IDリスト（カンマ区切り、要素数=ワーカー数。例 `0,0`=GPU 0 に2ワーカー、`0,1,2`=3GPUに1ワーカーずつ。MP4モード専用、`--gpu` と併用不可） |
 | `--chunk-size` | `10000` | チャンクのフレーム数（再開の単位） |
 | `--crf` / `--preset` | `18` / `medium` | libx264 エンコード設定 |
 | `--overwrite` | OFF | チャンクディレクトリを削除して作り直す |
 | `--keep-chunks` | OFF | 連結後もチャンクディレクトリを残す |
+| `--start-frame` / `--end-frame` | なし（NPZ の最初 / 最後） | MP4 / ポーズダンプの対象フレーム範囲（frame_id 基準・両端含む・片方だけ可。`--still-range` と併用不可。feat-040） |
 | `--still-range START END` | なし | デバッグ静止画モード（排他。frame_id 基準・両端含む。`--still-dir` 必須） |
 | `--dump-poses PATH` | なし | ポーズダンプモード（排他。c2w を JSON 出力、GPU不要） |
 | `--config PATH` | なし | 設定YAML（フラット `key: value`。キーは CLI 名のハイフン→アンダースコア。※必須項目は YAML でも指定可） |
@@ -488,6 +513,8 @@ camera: FPSCamera
 fps: 30
 output: data/session001_fps.mp4
 # gpus: 0,0    # 並列レンダリング（feat-030。gpu キーとは併用不可）
+# start_frame: 1   # フレーム範囲（feat-040。任意）
+# end_frame: 900
 ```
 
 ## テスト

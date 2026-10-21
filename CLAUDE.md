@@ -111,11 +111,12 @@ lift2d-to-3d-keypoints/
 │   ├── render.py                      # バッチレンダリングスクリプト
 │   ├── render_keypoints.py            # 3DGSレンダリング＋人体キーポイント重ね描き（複数人対応〔1人1 C3D を位置引数に複数指定、P番号ラベル、奥の人物から描画、--fps-person〕、オクルージョン考慮、全フレーム連番PNG/MP4出力、欠損マーカー許容、キーポイント入力は C3D/NPZ 両対応〔拡張子 .npz で判別、pnp_ok は無視して全フレーム描画〕、--no-png でMP4のみ出力、--no-keypoints/--distort で歪み対応静止画モード、--config YAML対応〔CLI > YAML > 既定値〕、--fps-frustum でFPSカメラ視錐台ワイヤフレーム重ね描き〔FOVは --fps-camera/--fps-toml のTOMLから、奥行き --frustum-depth 既定0.5m、頭部点欠損フレームは非描画〕、座標(0,0,0)の点は欠損扱い〔bug-005〕、--fps-person all で全人物の視錐台を同時描画〔feat-038〕。feat-015/016/017/021/022/024/032/033/034/037/038）
 │   ├── npz_to_c3d.py                  # NPZ（リフトアップ済み3Dキーポイント）→ C3D 変換（Blender io_anim_c3d 取り込み対応。feat-018）
+│   ├── c3d_to_npz.py                  # C3D（1人分）→ NPZ 変換（render_fps_video.py の入力用。座標変換は render_keypoints.py と同一、欠損点〔(0,0,0) 含む〕は NaN、frame_ids は C3D フレーム番号のまま、一時ファイル+読み戻し検証で確定。feat-039）
 │   ├── filter_c3d.py                  # C3Dキーポイントの時間方向平滑化（Butterworth 2次 filtfilt・ゼロ位相。feat-020）
 │   ├── filter_npz.py                  # NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要、NaN区間維持・追加キー無加工コピー。feat-028）
 │   ├── refine_extrinsics.py           # 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化バッチ（K既知、サンプリング型受理判定、Calib_scene.toml型出力+診断レポート。feat-026）
 │   ├── adjust_extrinsics_multiview.py # 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点〔エピポーラ整合フィルタつき〕+ 3DGSアンカーのバンドル調整、K既知。初期ポーズは全台 feat-026 精緻化済みを --init-cameras で明示指定。ホールドアウト評価・診断レポート・ポーズ確定カメラのみのTOML出力。feat-035）
-│   ├── render_fps_video.py            # NPZ直読みFPS動画一括生成（頭部キーポイントからポーズをnumpy計算、ピンホールK、NaN=黒画面、チャンク分割+耐久書き出し+ffprobe破損検査つき再開、静止画/ポーズダンプ排他モード、--config YAML対応、--gpus でチャンク並列レンダリング〔単一GPU複数ワーカー/複数GPU対応、動的分配、失敗時即時中止〕、完了時に <MP4名>_info.txt を自動保存。feat-027/029/030/031）
+│   ├── render_fps_video.py            # NPZ直読みFPS動画一括生成（頭部キーポイントからポーズをnumpy計算、ピンホールK、NaN=黒画面、チャンク分割+耐久書き出し+ffprobe破損検査つき再開、静止画/ポーズダンプ排他モード、--config YAML対応、--gpus でチャンク並列レンダリング〔単一GPU複数ワーカー/複数GPU対応、動的分配、失敗時即時中止〕、完了時に <MP4名>_info.txt を自動保存、--start-frame/--end-frame でMP4・ポーズダンプのフレーム範囲指定〔frame_id 基準、既定出力名に実範囲〕。feat-027/029/030/031/040）
 │   └── data/                          # データファイル（gitignore）
 ├── matcher_lab/                       # 学習ベースマッチャー環境（独立した uv 環境。feat-026）
 │   ├── pyproject.toml                 # uv パッケージ管理（Python 3.12 / torch cu130 / kornia）
