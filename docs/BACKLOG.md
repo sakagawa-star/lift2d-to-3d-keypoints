@@ -49,6 +49,7 @@
 | feat-036 | 機能追加 | render_keypoints.py ボーン線の太さ変更（2→20px、視錐台ワイヤフレームは2pxのまま据え置き） | Closed |
 | feat-037 | 機能追加 | render_keypoints.py 複数人の3Dキーポイント重ね描き（1人1 C3D、P番号ラベル、奥の人物から描画） | Closed |
 | bug-005 | 不具合 | render_keypoints.py が座標 (0,0,0) の欠損マーカー（Pose2Sim 出力C3D）を有効点として描画する | Closed |
+| feat-038 | 機能追加 | render_keypoints.py 複数人全員のFPS視錐台の同時描画（--fps-person all） | Closed |
 
 ## ステータス凡例
 

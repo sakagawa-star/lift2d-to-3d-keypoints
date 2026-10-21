@@ -47,7 +47,7 @@ TOML内カメラのK・解像度から、奥行きは --frustum-depth（default:
 
 複数人の重ね描き（feat-037）: キーポイントファイル（1ファイル=1人、C3Dのみ）を2個以上
 並べて指定すると、同じ3DGS背景に全員のスケルトンを描き、頭部の上に人物ラベル P1, P2, ...
-（指定順）を描く。--fps-frustum の視錐台は --fps-person で指定した1人（既定 P1）だけ描く。
+（指定順）を描く。--fps-frustum の視錐台は --fps-person で指定した1人（既定 P1）を描く。--fps-person all で全人物の視錐台を同時に描く（feat-038）。
 設定YAMLでは keypoints_path に ; 区切りで並べる:
   TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run python render_keypoints.py \\
       data/Blender/point_cloud.ply data/Blender/Config_scene.toml \\
@@ -117,6 +117,7 @@ FRUSTUM_COLOR = (255, 0, 255)   # マゼンタ (BGR)。スケルトンの赤/青
 FRUSTUM_DEPTH_DEFAULT = 0.5     # 錐台奥行きの既定値 [m]
 # 視錐台の8線分。頂点インデックス 0=視点(apex), 1..4=遠端4隅
 FRUSTUM_EDGES = [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (2, 3), (3, 4), (4, 1)]
+FPS_PERSON_ALL = "all"   # --fps-person の全員指定（feat-038）
 
 
 def load_cameras_toml(toml_path: str) -> dict[str, dict]:
@@ -869,6 +870,21 @@ def _yaml_paths(value: str) -> list[str]:
     return parts
 
 
+def _fps_person_value(value: str) -> int | str:
+    """--fps-person / 設定YAML fps_person の値（1以上の整数 または all）を変換する（feat-038）。
+
+    "all"（小文字の完全一致）は FPS_PERSON_ALL を返す。それ以外は int() で変換する。
+    値域（1〜人物数）の検査は main() で行う（人物数がここでは分からないため）。
+    """
+    if value == FPS_PERSON_ALL:
+        return FPS_PERSON_ALL
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"1 以上の整数または {FPS_PERSON_ALL} を指定してください（指定値: {value!r}）")
+
+
 CONFIG_CONVERTERS = {
     "ply_path": str, "toml_path": str, "keypoints_path": _yaml_paths,
     "camera": str, "output_dir": str,
@@ -878,7 +894,7 @@ CONFIG_CONVERTERS = {
     "no_occlusion": _yaml_bool, "mp4": _yaml_bool, "no_png": _yaml_bool,
     "no_keypoints": _yaml_bool, "distort": _yaml_bool,
     "fps_frustum": _yaml_bool, "fps_camera": str, "fps_toml": str, "frustum_depth": float,
-    "fps_person": int,
+    "fps_person": _fps_person_value,
 }
 
 
@@ -937,9 +953,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frustum-depth", type=float, default=None,
                         help=f"視錐台の奥行き[m]（--fps-frustum 専用、default: "
                              f"{FRUSTUM_DEPTH_DEFAULT}）")
-    parser.add_argument("--fps-person", type=int, default=None,
-                        help="視錐台を描く人物番号（1始まり、キーポイントファイルの指定順。"
-                             "--fps-frustum 専用、default: 1）")
+    parser.add_argument("--fps-person", type=_fps_person_value, default=None,
+                        help="視錐台を描く人物番号（1始まり、キーポイントファイルの指定順）。"
+                             "all で全人物の視錐台を描く（--fps-frustum 専用、default: 1）")
     parser.add_argument("--config", default=None,
                         help="設定YAML（フラット key: value）。優先順位は "
                              "CLI > 設定YAML > デフォルト。フラグ系（--no-occlusion/--mp4/"
@@ -1080,7 +1096,8 @@ def main(argv=None) -> int:
         if npz_paths:
             parser.error("複数人（キーポイントファイル2個以上）の指定は C3D のみ対応です"
                          f"（NPZ: {', '.join(npz_paths)}）")
-    if args.fps_person is not None and not (1 <= args.fps_person <= n_persons):
+    if (args.fps_person is not None and args.fps_person != FPS_PERSON_ALL
+            and not (1 <= args.fps_person <= n_persons)):
         parser.error(f"--fps-person は 1〜{n_persons} の整数を指定してください"
                      f"（指定値: {args.fps_person}）")
 
@@ -1090,6 +1107,10 @@ def main(argv=None) -> int:
         args.frustum_depth = FRUSTUM_DEPTH_DEFAULT
     if args.fps_person is None:
         args.fps_person = 1
+    if args.fps_person == FPS_PERSON_ALL:
+        fps_targets = list(range(1, n_persons + 1))   # 人物番号の昇順
+    else:
+        fps_targets = [args.fps_person]
 
     # --no-png 単独指定は出力が何もなくなるため、重い処理に入る前に拒否する
     if args.no_png and not args.mp4:
@@ -1209,16 +1230,19 @@ def main(argv=None) -> int:
             by_frames.append(by_frame)
             rates.append(rate)
 
-        # --fps-frustum 用の頭部マーカー構成チェック（対象人物のファイルのみ）
+        # --fps-frustum 用の頭部マーカー構成チェック（視錐台対象人物のファイルのみ）
         if args.fps_frustum:
-            fp_k = args.fps_person
-            fp = persons[fp_k - 1]
-            missing_head = [name for name in HEAD_JOINT_NAMES if name not in fp["labels"]]
-            if missing_head:
-                print(
-                    f"頭部マーカーが入力にありません（--fps-frustum に必須）: "
-                    f"P{fp_k}: {fp['path']}: {', '.join(missing_head)}", file=sys.stderr,
-                )
+            has_error = False
+            for fp_k in fps_targets:                       # 人物番号の昇順
+                fp = persons[fp_k - 1]
+                missing_head = [name for name in HEAD_JOINT_NAMES if name not in fp["labels"]]
+                if missing_head:
+                    print(
+                        f"頭部マーカーが入力にありません（--fps-frustum に必須）: "
+                        f"P{fp_k}: {fp['path']}: {', '.join(missing_head)}", file=sys.stderr,
+                    )
+                    has_error = True
+            if has_error:
                 return 1
 
         # point rate 一致検査（float の完全一致）
@@ -1253,20 +1277,23 @@ def main(argv=None) -> int:
         print(f"フレーム範囲: {total_frames} フレーム中 {len(frame_nos)} フレームを対象")
 
     # FPS視錐台の事前計算（全フレーム一括、フレーム範囲フィルタ後のframe_nosとインデックスを揃える）
-    frustum_verts = None
-    frustum_valid = None
+    frustums = []      # 要素: {"index": 人物番号, "verts": (F,5,3), "valid": (F,) bool}
     if args.fps_frustum:
         print(f"FPS視錐台: カメラ {fps_cam['name']} ({fps_cam['width']}x{fps_cam['height']}), "
               f"奥行き {args.frustum_depth} m")
-        fp = persons[args.fps_person - 1]
-        # 欠席フレームは全マーカー無効のフレームとして渡し、視錐台を描かない（FR-009）
-        fps_frames = [fr if fr is not None else make_absent_frame(f, len(fp["labels"]))
-                      for f, fr in zip(frame_nos, fp["frames"])]
-        head_arr = collect_head_points(fp["labels"], fps_frames)   # (F,7,3)
+        if len(fps_targets) >= 2:
+            print(f"FPS視錐台: 対象人物 {', '.join(f'P{k}' for k in fps_targets)}")
         head_idx = {name: i for i, name in enumerate(HEAD_JOINT_NAMES)}
-        c2w_b, frustum_valid, _ = compute_fps_poses(head_arr, head_idx)
-        frustum_verts = compute_frustum_vertices(
-            c2w_b, fps_cam["K"], fps_cam["width"], fps_cam["height"], args.frustum_depth)
+        for fp_k in fps_targets:
+            fp = persons[fp_k - 1]
+            # 欠席フレームは全マーカー無効のフレームとして渡し、視錐台を描かない（FR-009）
+            fps_frames = [fr if fr is not None else make_absent_frame(f, len(fp["labels"]))
+                          for f, fr in zip(frame_nos, fp["frames"])]
+            head_arr = collect_head_points(fp["labels"], fps_frames)   # (F,7,3)
+            c2w_b, valid, _ = compute_fps_poses(head_arr, head_idx)
+            verts = compute_frustum_vertices(
+                c2w_b, fps_cam["K"], fps_cam["width"], fps_cam["height"], args.frustum_depth)
+            frustums.append({"index": fp_k, "verts": verts, "valid": valid})
 
     # PLY読み込み（render.py は torch を top-level import するため関数内 import）
     from render import load_ply, print_ply_summary
@@ -1323,11 +1350,12 @@ def main(argv=None) -> int:
         for i, frame_no in enumerate(frame_nos):
             # FPS視錐台（あれば）を背景に重ね描きしてからスケルトンを描く（視錐台が下）
             base = bgr_bg
-            if frustum_verts is not None and frustum_valid[i]:
-                base = draw_frustum(
-                    bgr_bg, frustum_verts[i], cam, depth_map, alpha_map,
-                    args.occlusion_margin, args.near_plane, occlusion=occlusion,
-                )
+            for fr_info in frustums:                         # 人物番号の昇順
+                if fr_info["valid"][i]:
+                    base = draw_frustum(
+                        base, fr_info["verts"][i], cam, depth_map, alpha_map,
+                        args.occlusion_margin, args.near_plane, occlusion=occlusion,
+                    )
 
             entries = []
             for p in persons:
@@ -1431,13 +1459,15 @@ def main(argv=None) -> int:
 
     if args.fps_frustum:
         n_total = len(frame_nos)
-        n_valid = int(np.count_nonzero(frustum_valid))
-        if n_valid == n_total:
-            print(f"FPS視錐台: {n_valid}/{n_total} フレームに描画")
-        else:
-            n_invalid = n_total - n_valid
-            print(f"FPS視錐台: {n_valid}/{n_total} フレームに描画"
-                  f"（頭部キーポイント欠損・縮退により {n_invalid} フレームは非描画）")
+        for fr_info in frustums:
+            prefix = "FPS視錐台" if len(frustums) == 1 else f"FPS視錐台 P{fr_info['index']}"
+            n_valid = int(np.count_nonzero(fr_info["valid"]))
+            if n_valid == n_total:
+                print(f"{prefix}: {n_valid}/{n_total} フレームに描画")
+            else:
+                n_invalid = n_total - n_valid
+                print(f"{prefix}: {n_valid}/{n_total} フレームに描画"
+                      f"（頭部キーポイント欠損・縮退により {n_invalid} フレームは非描画）")
 
     elapsed = time.time() - start_time
     print(f"\n完了: {output_dir} ({len(frame_nos)} フレーム, {elapsed:.1f}秒)")
