@@ -205,10 +205,10 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `filter_npz.py` | NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要） |
 | `render.py` | PLY + ポーズJSON のバッチレンダリング（連番PNG/MP4） |
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き（複数人対応） / 静止画モード |
-| `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
-| `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知） |
+| `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知）。`--config` で設定YAML指定可 |
+| `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知）。`--config` で設定YAML指定可 |
 | `prepare_phone_photo.py` | スマートフォン静止画の前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、Exif から初期 TOML、2D 点の座標変換。feat-041） |
-| `estimate_intrinsics_loop.py` | レンダ＋マッチング反復による内部パラメータ（f・主点・k1・k2）と外部パラメータの同時推定 → `refine_extrinsics.py` で最終精緻化 → 重ね合わせ評価（スマートフォン静止画用。feat-041） |
+| `estimate_intrinsics_loop.py` | レンダ＋マッチング反復による内部パラメータ（f・主点・k1・k2）と外部パラメータの同時推定 → `refine_extrinsics.py` で最終精緻化 → 重ね合わせ評価（スマートフォン静止画用。feat-041）。`--config` で設定YAML指定可 |
 | `evaluate_overlay.py` | 写真とレンダの重ね合わせ評価（DIS オプティカルフローのずれの統計・合否判定・確認画像。feat-041） |
 | `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング、`--start-frame` / `--end-frame` でフレーム範囲指定） |
 
@@ -429,6 +429,9 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
   --points-3d <3D基準点CSV> --points-2d <2D点CSV> \
   --out-toml <出力TOML> --out-report <診断レポートtxt> \
   [--cameras cam1 cam2 ...] [--overwrite] [--seed-base 5000] [--tmp-dir <中間ファイル置き場>] [--config <設定YAML>]
+
+# 設定YAMLで実行（feat-042。CLI 指定が YAML を上書き）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extrinsics.py --config <設定YAML> [--seed-base 6000 ...]
 ```
 
 - 実写画像は `{images-dir}/{カメラ名}.png`（1920x1080 のみ対応）。対象カメラ省略時は 2D点 CSV に行がある全カメラを逐次処理
@@ -436,6 +439,22 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extr
 - 受理判定はサンプリング型（3チェーン×20サンプルの合意 f_c≥0.7。二峰時は手動点再投影で仲裁）。結果・失敗段・診断値はレポート参照
 - 事前準備: `uv sync --project matcher_lab` と LoFTR 重みのローカル配置（初回のみ `matcher_lab/loftr_smoke.py` の実行で自動取得）。実行時はオフラインで動作
 - 処理時間の目安: 1カメラ 3〜6分（RTX 5060 Ti 実測）
+- 設定YAML（`--config`。feat-042）: フラット `key: value` 形式（UTF-8。キーはオプション名の `--` を除き `-` を `_` にしたもの。未知のキー・型の誤りは終了コード 2）。優先順位は CLI > 設定YAML > 既定値で、必須項目は CLI か設定YAMLのどちらかにあればよい。相対パスは実行したカレントディレクトリが基準。`--config` は省略せずに書く（`--conf` などは終了コード 2。`--config` の追加により `--c` も曖昧になり使えない。`--ca` 以上は使える）。設定キーは `toml` `ply` `images_dir` `points_3d` `points_2d` `out_toml` `out_report`（以上必須）、`cameras`（スペース区切り）、`overwrite`（小文字 `true` / `false`。CLI からは true 方向にだけ上書き可）、`seed_base`、`tmp_dir`
+
+設定YAMLの例:
+
+```yaml
+toml: phase4/data/10F/s25_20261124_152436_init.toml
+ply: phase4/data/10F/point_cloud.ply
+images_dir: phase4/data/10F/s25_images
+points_3d: phase0/data/kijunten_locations_10F.csv
+points_2d: phase4/data/10F/points_2d_s25_20261124_152436.csv
+out_toml: phase4/data/10F/refined.toml
+out_report: phase4/data/10F/refined_report.txt
+cameras: s25_20261124_152436
+# seed_base: 5000
+# overwrite: true
+```
 
 ### adjust_extrinsics_multiview.py（8台多視点同時外部パラメータ調整。feat-035）
 
@@ -449,6 +468,9 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extr
   --init-cameras cam1 cam2 ... \
   --out-toml <出力TOML> --out-report <診断レポートtxt> \
   [--cameras cam1 cam2 ...] [--overwrite] [--seed 5000] [--tmp-dir <中間ファイル置き場>] [--fresh-match] [--config <設定YAML>]
+
+# 設定YAMLで実行（feat-042。CLI 指定が YAML を上書き）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extrinsics_multiview.py --config <設定YAML> [--fresh-match ...]
 ```
 
 - 実写画像は `{images-dir}/{カメラ名}.png`（1920x1080 のみ対応）。対象カメラ（`--cameras` 省略時は TOML×画像の積集合）は**全て `--init-cameras` で信頼指定されている必要がある**（外れがあればエラー終了。feat-026 出力 TOML は未精緻化カメラの無効ポーズを含み得るため明示指定必須）
@@ -456,6 +478,20 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extr
 - 処理段: ペアマッチング（NPZキャッシュ再利用、`--fresh-match` で再実行）→ エピポーラフィルタ（採用ペアグラフで全カメラ単一連結でなければエラー）→ アンカー取得 → バンドル調整（非悪化フォールバック: アンカー残差が 0.3px 超悪化したカメラは BA 前ポーズに戻す）→ ホールドアウト評価・レポート (a)〜(i)・TOML出力
 - 事前準備: `uv sync --project matcher_lab` に加え、MASt3R のリポジトリ（`~/git/mast3r`）とチェックポイント（`~/data/models/mast3r/`）、LoFTR 重み（refine_extrinsics.py と共通）が必要
 - 処理時間の目安: 初回はペアマッチ28ペア + アンカー8台の生成で数十分、中間NPZキャッシュ再利用時は10分前後（RTX 5060 Ti 実測。BA 本体は約4分）
+- 設定YAML（`--config`。feat-042）: フラット `key: value` 形式（UTF-8。キーはオプション名の `--` を除き `-` を `_` にしたもの。未知のキー・型の誤りは終了コード 2）。優先順位は CLI > 設定YAML > 既定値で、必須項目は CLI か設定YAMLのどちらかにあればよい。相対パスは実行したカレントディレクトリが基準。`--config` は省略せずに書く（`--conf` などは終了コード 2。`--config` の追加により `--c` も曖昧になり使えない。`--ca` 以上は使える）。設定キーは `toml` `ply` `images_dir` `out_toml` `out_report`（以上必須）、`init_toml`（処理の開始に必要）、`init_cameras` `cameras`（スペース区切り）、`overwrite` `fresh_match`（小文字 `true` / `false`。CLI からは true 方向にだけ上書き可）、`seed`、`tmp_dir`
+
+設定YAMLの例:
+
+```yaml
+toml: phase4/data/<部屋>/intrinsics_all.toml
+ply: phase4/data/<部屋>/point_cloud.ply
+images_dir: phase4/data/<部屋>/images
+init_toml: phase4/data/<部屋>/refined.toml
+init_cameras: cam01 cam02 cam03 cam04 cam05 cam06 cam07 cam08
+out_toml: phase4/data/<部屋>/adjusted.toml
+out_report: phase4/data/<部屋>/adjusted_report.txt
+# fresh_match: true
+```
 
 ### estimate_intrinsics_loop.py ほか（スマートフォン静止画の内部・外部パラメータ推定。feat-041）
 
@@ -476,6 +512,9 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_in
   --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <新規の出力ディレクトリ> \
   [--tmp-dir <新規の中間ファイル置き場>] [--config <設定YAML>]
 
+# 2'. 推定を設定YAMLで実行（feat-042。CLI 指定が YAML を上書き）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py --config <設定YAML>
+
 # 3. 重ね合わせ評価だけを単体で行う場合
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_overlay.py \
   --toml <TOML> --camera <カメラ名> --ply <3DGS PLY> --image <前処理後画像PNG> \
@@ -490,19 +529,10 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_ov
 - 評価の合否: 集計対象画素の割合 ≥ 0.10 かつ写真→レンダのずれ（DIS）の中央値 ≤ 1.0px で「合格」。p95 は記録のみ（3DGS の局所的な再現誤差に左右されるため）。`_eval.txt` には丸めない値 `valid_ratio_raw`・`median_raw` も出る
 - 事前準備: `uv sync --project matcher_lab`、MASt3R（`~/git/mast3r`、`~/data/models/mast3r/`）と LoFTR 重み（`refine_extrinsics.py` と共通）
 - 処理時間の目安: 約 2.5 分（10F の実データ、RTX 5060 Ti。うち `refine_extrinsics.py` が約 2 分）
+- 設定YAML（`--config`。feat-042）: `estimate_intrinsics_loop.py` だけが対応（`prepare_phone_photo.py`・`evaluate_overlay.py` は非対応）。フラット `key: value` 形式（UTF-8。キーはオプション名の `--` を除き `-` を `_` にしたもの。未知のキー・型の誤りは終了コード 2）。優先順位は CLI > 設定YAML > 既定値で、必須項目は CLI か設定YAMLのどちらかにあればよい。相対パスは実行したカレントディレクトリが基準。`--config` は省略せずに書く（`--conf` などは終了コード 2。`--config` の追加により `--c` も曖昧になり使えない。`--ca` 以上は使える）。設定キーは `toml` `camera` `ply` `images_dir` `points_3d` `points_2d` `out_dir`（以上必須）、`tmp_dir`。`out_dir`・`tmp_dir` は CLI と同じく存在しない新しいパスを書く
+- 相対パスの注意（bug-007）: 最終精緻化の `refine_extrinsics.py` はプロジェクトルート基準でパスを解釈するため、修正まではプロジェクトルートで実行するか、すべてのパスを絶対パスで指定する（設定YAMLに書くパスも同じ）
 
-### 精緻化ツール 3 本の設定YAML（--config。feat-042）
-
-`refine_extrinsics.py`・`adjust_extrinsics_multiview.py`・`estimate_intrinsics_loop.py` は、`--config <設定YAML>` でオプションをまとめて指定できる（`render_keypoints.py`・`render_fps_video.py` と同じ方式）。
-
-```bash
-# 設定YAMLだけで実行
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py --config run_loop.yaml
-# 一部だけ CLI で上書き（CLI > 設定YAML > 既定値）
-TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extrinsics.py --config run_refine.yaml --seed-base 6000
-```
-
-設定YAMLの例（`estimate_intrinsics_loop.py` 用）:
+設定YAMLの例:
 
 ```yaml
 toml: phase4/data/10F/s25_20261124_152436_init.toml
@@ -514,20 +544,6 @@ points_2d: phase4/data/10F/points_2d_s25_20261124_152436.csv
 out_dir: phase4/data/10F/feat042_out
 tmp_dir: phase4/data/10F/feat042_tmp
 ```
-
-設定キー（オプション名の `--` を除き、`-` を `_` にしたもの。これ以外のキーはエラー）:
-
-| ツール | 設定キー |
-|---|---|
-| `refine_extrinsics.py` | `toml` `ply` `images_dir` `points_3d` `points_2d` `out_toml` `out_report`（以上必須）、`cameras` `overwrite` `seed_base` `tmp_dir` |
-| `adjust_extrinsics_multiview.py` | `toml` `ply` `images_dir` `out_toml` `out_report`（以上必須）、`init_toml`（処理の開始に必要）、`init_cameras` `cameras` `overwrite` `seed` `tmp_dir` `fresh_match` |
-| `estimate_intrinsics_loop.py` | `toml` `camera` `ply` `images_dir` `points_3d` `points_2d` `out_dir`（以上必須）、`tmp_dir` |
-
-- 書式は `key: value` のフラット形式だけ（`#` の行と空行は無視。行頭の空白も無視されるので、インデントした行も通常のキーとして読まれる）。文字コードは UTF-8
-- 複数のカメラ名（`cameras`、`init_cameras`）はスペース区切り（例: `cameras: cam01 cam02`）。bool（`overwrite`、`fresh_match`）は小文字の `true` / `false` のみ。フラグは CLI から true 方向にだけ上書きできる
-- 必須項目は CLI か設定YAMLのどちらかにあればよい。相対パスは実行したカレントディレクトリが基準
-- `--config` は省略せずに書く（`--conf` などはエラー）。`--config` の追加により、従来 `--camera` / `--cameras` の省略形として通っていた `--c` は使えない（`--ca` 以上は使える）
-- `estimate_intrinsics_loop.py` は、bug-007 の修正まで、プロジェクトルートで実行するか、すべてのパスを絶対パスで指定する（設定YAMLに書くパスも同じ。最終精緻化の子プロセスがプロジェクトルート基準でパスを解釈するため）
 
 ### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030/031/040）
 
