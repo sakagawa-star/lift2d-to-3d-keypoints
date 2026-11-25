@@ -140,6 +140,8 @@ phase4/data/10F/
 
 #### 4.1.1 CLI
 
+> **注記（feat-043、2026-11-26）**: 本節のオプション名は feat-043 で変更された。`--out-toml` → `--init-toml`、`--points-2d-out` → `--points-2d`、`--points-2d-in` → `--points-2d-original`（旧名は使えない）。`--config` が追加され、オプションの省略形は受け付けなくなった（`allow_abbrev=False`）。`--camera` はパス区切りを含む名前を拒否する。現在の仕様は `docs/issues/feat-043-shared-job-yaml-phone-photo/` を参照。本節は feat-041 時点の記録として残す。
+
 ```
 uv run --project phase4 python phase4/prepare_phone_photo.py \
     --image <原本JPEG> --camera <カメラ名> \
@@ -202,6 +204,8 @@ fisheye = false
 ### 4.2 FR-002〜FR-007 `estimate_intrinsics_loop.py`
 
 #### 4.2.1 CLI と全体の流れ
+
+> **注記（feat-043、2026-11-26）**: 本節の `--toml` は feat-043 で `--init-toml`（設定キー `init_toml`）に変更された（旧名は使えない）。オプションの省略形は受け付けなくなった（`allow_abbrev=False`）。最終精緻化で `refine_extrinsics.py` に渡す引数（`refine_extrinsics.py` 自身の `--toml`）は変わらない。現在の仕様は `docs/issues/feat-043-shared-job-yaml-phone-photo/` を参照。
 
 ```
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py \

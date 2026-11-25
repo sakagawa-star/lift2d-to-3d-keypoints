@@ -50,6 +50,7 @@ feat-029 / feat-033 と同じ用語を使う。
 - **機能名**: 設定キーの型変換・検証
 - **概要**: 設定キーは対象ツールごとに次の表のものに限る。値には CLI と同じ型変換を適用する
 - **入力**: 簡易フラットパーサーが返す文字列の値
+- **注記（feat-043、2026-11-26）**: `estimate_intrinsics_loop.py` の設定キー `toml` は feat-043 で `init_toml` に変わった。また `estimate_intrinsics_loop.py` は `prepare_phone_photo.py` と共用する YAML のため、前処理専用のキー（`image` `points_2d_original` `expect_model` `expect_focal_mm` `overwrite`）を未知のキーとせず黙って無視するようになった（FR-005 の 1 の例外）。現在の仕様は `docs/issues/feat-043-shared-job-yaml-phone-photo/` を参照
 - **出力**: 型変換済みの設定値
 - **詳細**: 設定キーの全列挙（これ以外のキーはエラー。FR-005）
 
@@ -160,6 +161,7 @@ feat-029 / feat-033 と同じ用語を使う。
 - **後方互換**: `--config` を使わない既存のコマンドラインの挙動を変えない（既存テストの全件成功で検証する）。例外は次の 2 つ:
   1. FR-004 に書いた、必須項目欠落時のエラー文言。また、必須項目の欠落と、argparse が `unrecognized arguments` として拒否する引数（未知のオプション `--bogus` や余分な位置引数 `extra` など）が同時にある場合は、従来は必須項目の欠落が報告されたが、本案件の後は先に `unrecognized arguments` が報告される（argparse の 1 回目の解釈で検出されるため。終了コード 2 は変わらない。codex-12 指摘1、codex-13）
   2. argparse のオプション名の省略形のうち、`--config` と前方一致が重なるもの（例: 従来は `--camera` / `--cameras` の省略形として通っていた `--c`）は、曖昧な指定として終了コード 2 になる。`--ca` 以上の省略形と完全なオプション名は従来どおり使える。他のオプションの省略形も従来どおり使える（既存の 3 本は省略形を許可しており、それを変えない）。`--config` 自体の省略形（`--co` など）は終了コード 2 にする。どの場合も設定YAMLは読まない
+  - 注記（feat-043、2026-11-26）: `estimate_intrinsics_loop.py` は feat-043 で省略形を一切受け付けなくなった（`allow_abbrev=False`。`--ca` などの省略形も終了コード 2）。`refine_extrinsics.py`・`adjust_extrinsics_multiview.py` は本項のまま
 - **内部呼び出しの不変**: `estimate_intrinsics_loop.py` が最終精緻化で `refine_extrinsics.py` を subprocess で呼ぶときの引数（CLI 引数で渡す）は変えない
 - **パフォーマンス**: 設定YAMLの読み込みにかかる時間は無視できる（数十行のテキストの読み込み）
 - **対応環境**: 本案件の前と同じ。ユニットテストはルートの uv 環境の `uv run pytest` で実行できること（既存方式）

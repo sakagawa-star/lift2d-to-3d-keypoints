@@ -7,9 +7,11 @@ TOML（Calib_scene.toml形式、1カメラ分）を作り、原本座標の2D点
 実行方法（プロジェクトルートで）:
     uv run --project phase4 python phase4/prepare_phone_photo.py \\
         --image <原本JPEG> --camera <カメラ名> \\
-        --images-dir <前処理後画像の出力ディレクトリ> --out-toml <初期TOML> \\
-        --points-2d-in <原本座標の2D点CSV> --points-2d-out <前処理後座標の2D点CSV> \\
+        --images-dir <前処理後画像の出力ディレクトリ> --init-toml <初期TOML> \\
+        --points-2d-original <原本座標の2D点CSV> --points-2d <前処理後座標の2D点CSV> \\
         [--expect-model "Galaxy S25"] [--expect-focal-mm 5.4] [--overwrite]
+    設定YAMLで指定する場合（推定 estimate_intrinsics_loop.py と共用の設定YAMLを渡してよい。feat-043）:
+    uv run --project phase4 python phase4/prepare_phone_photo.py --config job.yaml
 
 終了コード: 0=成功、1=入力エラー・検査不合格・出力済み、2=引数エラー（argparse）
 
@@ -22,7 +24,14 @@ from pathlib import Path
 
 import cv2
 
-from refine_extrinsics import InputError, _format_toml_value, load_points_2d_csv
+from refine_extrinsics import (
+    InputError,
+    _format_toml_value,
+    _yaml_str,
+    load_points_2d_csv,
+    parse_args_with_config,
+)
+from render_fps_video import _yaml_bool
 
 OUT_W, OUT_H = 1920, 1080
 DIAG_35MM = 43.27
@@ -154,24 +163,48 @@ def _write_atomic_text(path: Path, text: str) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="スマートフォン写真の前処理（feat-041 FR-001）")
-    p.add_argument("--image", required=True, help="原本JPEG")
-    p.add_argument("--camera", required=True, help="カメラ名")
-    p.add_argument("--images-dir", required=True, help="前処理後画像の出力ディレクトリ")
-    p.add_argument("--out-toml", required=True, help="初期TOMLの出力パス")
-    p.add_argument("--points-2d-in", required=True, help="原本座標の2D点CSV")
-    p.add_argument("--points-2d-out", required=True, help="前処理後座標の2D点CSVの出力パス")
-    p.add_argument("--expect-model", default=None, help="期待する機種名（Exif Model）")
-    p.add_argument("--expect-focal-mm", type=float, default=None, help="期待する実焦点距離[mm]")
-    p.add_argument("--overwrite", action="store_true", help="出力ファイルの上書きを許可する")
+    p = argparse.ArgumentParser(description="スマートフォン写真の前処理（feat-041 FR-001）",
+                                allow_abbrev=False)
+    p.add_argument("--image", default=None, help="原本JPEG（--config でも指定可）")
+    p.add_argument("--camera", default=None, help="カメラ名（--config でも指定可）")
+    p.add_argument("--images-dir", default=None,
+                   help="前処理後画像の出力ディレクトリ（画像は <images-dir>/<camera>.png）（--config でも指定可）")
+    p.add_argument("--init-toml", default=None, help="初期TOMLの出力パス（--config でも指定可）")
+    p.add_argument("--points-2d-original", default=None, help="原本座標の2D点CSV（--config でも指定可）")
+    p.add_argument("--points-2d", default=None, help="前処理後座標の2D点CSVの出力パス（--config でも指定可）")
+    p.add_argument("--expect-model", default=None, help="期待する機種名（Exif Model）（--config でも指定可）")
+    p.add_argument("--expect-focal-mm", type=float, default=None,
+                   help="期待する実焦点距離[mm]（--config でも指定可）")
+    p.add_argument("--overwrite", action="store_true", help="出力ファイルの上書きを許可する（--config でも指定可）")
+    p.add_argument("--config", default=None,
+                   help="設定YAML（フラット key: value）。キーはオプション名の -- を除き - を _ にしたもの。"
+                        "優先順位は CLI > 設定YAML > 既定値。フラグ（--overwrite）は CLI から true 方向にだけ"
+                        "上書きできる（設定YAMLの true を false に戻すには設定YAMLを編集する）。"
+                        "推定（estimate_intrinsics_loop.py）と共用の設定YAMLを渡してよい（推定専用のキーは無視する）")
     return p
+
+
+CONFIG_CONVERTERS = {
+    "image": _yaml_str, "camera": _yaml_str, "images_dir": _yaml_str, "init_toml": _yaml_str,
+    "points_2d_original": _yaml_str, "points_2d": _yaml_str,
+    "expect_model": _yaml_str, "expect_focal_mm": float, "overwrite": _yaml_bool,
+}
+REQUIRED_OPTIONS = [("image", "--image"), ("camera", "--camera"), ("images_dir", "--images-dir"),
+                    ("init_toml", "--init-toml"), ("points_2d_original", "--points-2d-original"),
+                    ("points_2d", "--points-2d")]
+# 共用 YAML の相手（推定 estimate_intrinsics_loop.py）のキー（feat-043）
+IGNORED_KEYS = frozenset({"points_3d", "ply", "out_dir", "tmp_dir"})
 
 
 def _run(args) -> int:
     camera = args.camera
+    if (camera in ("", ".", "..") or Path(camera).name != camera
+            or "/" in camera or "\\" in camera):
+        print(f"エラー: カメラ名にはパス区切りを含まない名前を指定してください: {camera}", file=sys.stderr)
+        return 1
     out_png = Path(args.images_dir) / f"{camera}.png"
-    out_toml = Path(args.out_toml)
-    out_csv = Path(args.points_2d_out)
+    out_toml = Path(args.init_toml)
+    out_csv = Path(args.points_2d)
 
     # 1. 出力済み検査
     if not args.overwrite:
@@ -214,7 +247,7 @@ def _run(args) -> int:
 
     # 6. 2D点の変換
     try:
-        pts_in = load_points_2d_csv(Path(args.points_2d_in))
+        pts_in = load_points_2d_csv(Path(args.points_2d_original))
     except InputError as e:
         print(f"エラー: {e}", file=sys.stderr)
         return 1
@@ -260,7 +293,12 @@ def _run(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parse_args_with_config(argv, parser, CONFIG_CONVERTERS, REQUIRED_OPTIONS, IGNORED_KEYS)
+    output_options = [("images_dir", "--images-dir"), ("init_toml", "--init-toml"), ("points_2d", "--points-2d")]
+    empty = [label for dest, label in output_options if getattr(args, dest) == ""]
+    if empty:  # 空のパスは書き込み先が実行ディレクトリになる・置換で途中失敗する
+        parser.error(f"空の値は指定できません: {', '.join(empty)}")
     return _run(args)
 
 

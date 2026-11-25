@@ -37,7 +37,7 @@ OPT_ADJUST = {"init_toml": "init.toml", "init_cameras": ["camA", "camB"],
               "cameras": ["camA", "camB", "camC"], "overwrite": True, "seed": 9,
               "tmp_dir": "tmpd", "fresh_match": True}
 
-REQ_LOOP = {"toml": "a.toml", "camera": "camA", "ply": "b.ply", "images_dir": "imgs",
+REQ_LOOP = {"init_toml": "a.toml", "camera": "camA", "ply": "b.ply", "images_dir": "imgs",
             "points_3d": "p3.csv", "points_2d": "p2.csv", "out_dir": "outd"}
 OPT_LOOP = {"tmp_dir": "tmpd"}
 
@@ -81,7 +81,8 @@ def _write_yaml(path: Path, d: dict) -> str:
 
 def _parse(mod, argv):
     parser = mod.build_arg_parser()
-    return parse_args_with_config(argv, parser, mod.CONFIG_CONVERTERS, mod.REQUIRED_OPTIONS)
+    return parse_args_with_config(argv, parser, mod.CONFIG_CONVERTERS, mod.REQUIRED_OPTIONS,
+                                  getattr(mod, "IGNORED_KEYS", frozenset()))
 
 
 def _vars_wo_config(ns) -> dict:
@@ -163,10 +164,11 @@ def test_4_missing_required(tool, tmp_path, capsys):
 @pytest.mark.parametrize("tool", TOOL_IDS)
 def test_4b_split_cli_yaml(tool, tmp_path):
     mod, req, _ = TOOLS[tool]
-    rest = {k: v for k, v in req.items() if k != "toml"}
+    key = "init_toml" if tool == "loop" else "toml"   # feat-043: 推定は init_toml
+    rest = {k: v for k, v in req.items() if k != key}
     conf = _write_yaml(tmp_path / "c.yaml", rest)
-    a = _parse(mod, ["--config", conf, "--toml", "cli.toml"])
-    assert a.toml == "cli.toml"
+    a = _parse(mod, ["--config", conf, "--" + key.replace("_", "-"), "cli.toml"])
+    assert getattr(a, key) == "cli.toml"
     for k, v in rest.items():
         assert getattr(a, k) == v
 
@@ -174,12 +176,12 @@ def test_4b_split_cli_yaml(tool, tmp_path):
 # === 5. 未知のキー ===
 
 def test_5_unknown_key(tmp_path, capsys):
-    conf = _write_yaml(tmp_path / "a.yaml", {**REQ_LOOP, "overwrite": True})
+    conf = _write_yaml(tmp_path / "a.yaml", {**REQ_LOOP, "seed_base": 5})
     with pytest.raises(SystemExit) as ei:
         _parse(eil, ["--config", conf])
     assert ei.value.code == 2
     err = capsys.readouterr().err
-    assert "未知のキー" in err and "overwrite" in err
+    assert "未知のキー" in err and "seed_base" in err
     conf = _write_yaml(tmp_path / "b.yaml", {**REQ_REFINE, "camera": "x"})
     with pytest.raises(SystemExit) as ei:
         _parse(rex, ["--config", conf])
@@ -334,13 +336,19 @@ def test_11c_abbrev(tool, tmp_path, monkeypatch, capsys):
         return ei.value.code, capsys.readouterr()
 
     code, cap = run(["--c", "camA"])
-    assert code == 2 and "ambiguous" in cap.err
+    if tool == "loop":
+        assert code == 2 and "unrecognized arguments" in cap.err
+    else:
+        assert code == 2 and "ambiguous" in cap.err
     code, cap = run(["--conf", y1])
     assert code == 2 and "--config は省略せずに指定してください" in cap.err
     code, cap = run(["--conf", y1, "--config", y2])
     assert code == 2 and "--config は省略せずに指定してください" in cap.err
     code, cap = run(["--config", y1, "--c", "camA"])
-    assert code == 2 and "ambiguous" in cap.err
+    if tool == "loop":
+        assert code == 2 and "unrecognized arguments" in cap.err
+    else:
+        assert code == 2 and "ambiguous" in cap.err
     code, cap = run([f"--co={y1}"])
     assert code == 2 and "--config は省略せずに指定してください" in cap.err
     code, cap = run(["--conf", y1, "--help"])
@@ -356,7 +364,11 @@ def test_11c_abbrev(tool, tmp_path, monkeypatch, capsys):
     # (f) 対照: --ca / --cam は従来どおり通る
     if tool == "loop":
         base_f = _cli({k: v for k, v in req.items() if k != "camera"})
-        a = _parse(mod, base_f + ["--cam", "camA"])
+        with pytest.raises(SystemExit) as ei:
+            _parse(mod, base_f + ["--cam", "camA"])
+        assert ei.value.code == 2
+        capsys.readouterr()
+        a = _parse(mod, base_f + ["--camera", "camA"])
         assert a.camera == "camA"
     else:
         a = _parse(mod, base + ["--ca", "camA"])
@@ -545,7 +557,7 @@ def _loop_setup(monkeypatch, tmp_path, constant_params=False, camera="camA"):
 def test_14_loop_main(monkeypatch, tmp_path):
     calls = _loop_setup(monkeypatch, tmp_path)
     conf = _write_yaml(tmp_path / "c.yaml", {
-        "toml": "x.toml", "camera": "camA", "ply": "x.ply", "images_dir": str(tmp_path),
+        "init_toml": "x.toml", "camera": "camA", "ply": "x.ply", "images_dir": str(tmp_path),
         "points_3d": "a.csv", "points_2d": "b.csv", "out_dir": str(tmp_path / "out"),
         "tmp_dir": str(tmp_path / "tmp")})
     assert eil.main(["--config", conf]) == 3
@@ -570,7 +582,7 @@ def test_16_subprocess_command_unchanged(monkeypatch, tmp_path):
     _loop_setup(monkeypatch, tmp_path, constant_params=True)
     out_dir = tmp_path / "out"
     work_tmp = tmp_path / "wtmp"
-    y = {"toml": "x.toml", "camera": "camA", "ply": "x.ply", "images_dir": str(tmp_path),
+    y = {"init_toml": "x.toml", "camera": "camA", "ply": "x.ply", "images_dir": str(tmp_path),
          "points_3d": "a.csv", "points_2d": "b.csv", "out_dir": str(out_dir),
          "tmp_dir": str(work_tmp)}
     conf = _write_yaml(tmp_path / "c.yaml", y)
@@ -610,7 +622,7 @@ def test_17_existing_out_dir_rejected(monkeypatch, tmp_path):
     keep = out_dir / "keep.txt"
     keep.write_text("old", encoding="utf-8")
     conf = _write_yaml(tmp_path / "c.yaml", {
-        "toml": "x.toml", "camera": "camA", "ply": "x.ply", "images_dir": str(tmp_path),
+        "init_toml": "x.toml", "camera": "camA", "ply": "x.ply", "images_dir": str(tmp_path),
         "points_3d": "a.csv", "points_2d": "b.csv", "out_dir": str(out_dir)})
     assert eil.main(["--config", conf]) == 1
     assert keep.read_text(encoding="utf-8") == "old"

@@ -241,7 +241,7 @@ def test_7c_existing_output_guard(tmp_path):
     out_dir.mkdir()
     rep = out_dir / "camA_loop_report.txt"
     rep.write_text("old", encoding="utf-8")
-    code = eil.main(["--toml", "x.toml", "--camera", "camA", "--ply", "x.ply",
+    code = eil.main(["--init-toml", "x.toml", "--camera", "camA", "--ply", "x.ply",
                      "--images-dir", str(tmp_path), "--points-3d", "a.csv",
                      "--points-2d", "b.csv", "--out-dir", str(out_dir)])
     assert code == 1
@@ -271,8 +271,8 @@ def test_7d_prepare_png(monkeypatch, tmp_path):
     out_toml = tmp_path / "init.toml"
     csv_out = tmp_path / "p_out.csv"
     code = ppp.main(["--image", str(src), "--camera", "camA", "--images-dir", str(images_dir),
-                     "--out-toml", str(out_toml), "--points-2d-in", str(csv_in),
-                     "--points-2d-out", str(csv_out), "--expect-model", "Galaxy S25",
+                     "--init-toml", str(out_toml), "--points-2d-original", str(csv_in),
+                     "--points-2d", str(csv_out), "--expect-model", "Galaxy S25",
                      "--expect-focal-mm", "5.4"])
     assert code == 0
     out = cv2.imread(str(images_dir / "camA.png"))
@@ -287,8 +287,8 @@ def test_7d_prepare_png(monkeypatch, tmp_path):
     assert abs(cam["K"][0, 0] - 24 * 80 / 43.27 * 30) < 1e-6
     # 出力済みなら --overwrite なしで拒否
     code2 = ppp.main(["--image", str(src), "--camera", "camA", "--images-dir", str(images_dir),
-                      "--out-toml", str(out_toml), "--points-2d-in", str(csv_in),
-                      "--points-2d-out", str(csv_out)])
+                      "--init-toml", str(out_toml), "--points-2d-original", str(csv_in),
+                      "--points-2d", str(csv_out)])
     assert code2 == 1
 
 
@@ -521,7 +521,7 @@ def test_19_not_converged_writes_loop_toml(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "render", dummy)
 
     out_dir = tmp_path / "out"
-    code = eil.main(["--toml", "x.toml", "--camera", camera, "--ply", "x.ply",
+    code = eil.main(["--init-toml", "x.toml", "--camera", camera, "--ply", "x.ply",
                      "--images-dir", str(tmp_path), "--points-3d", "a.csv",
                      "--points-2d", "b.csv", "--out-dir", str(out_dir),
                      "--tmp-dir", str(tmp_path / "tmp")])
@@ -546,7 +546,7 @@ def test_19_not_converged_writes_loop_toml(monkeypatch, tmp_path):
 
 
 def test_20_overwrite_removed_and_dangling_link(tmp_path):
-    base = ["--toml", "x.toml", "--camera", "camA", "--ply", "x.ply",
+    base = ["--init-toml", "x.toml", "--camera", "camA", "--ply", "x.ply",
             "--images-dir", str(tmp_path), "--points-3d", "a.csv", "--points-2d", "b.csv"]
     # (a) --overwrite は引数エラー
     with pytest.raises(SystemExit) as ei:
@@ -602,7 +602,7 @@ def _bug006_setup(monkeypatch, tmp_path, camera="camA"):
 
 
 def _bug006_args(tmp_path, camera, out_dir, tmp_dir=None):
-    a = ["--toml", "x.toml", "--camera", camera, "--ply", "x.ply",
+    a = ["--init-toml", "x.toml", "--camera", camera, "--ply", "x.ply",
          "--images-dir", str(tmp_path), "--points-3d", "a.csv",
          "--points-2d", "b.csv", "--out-dir", str(out_dir)]
     if tmp_dir is not None:

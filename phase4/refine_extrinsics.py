@@ -975,17 +975,27 @@ REQUIRED_OPTIONS = [("toml", "--toml"), ("ply", "--ply"), ("images_dir", "--imag
                     ("out_toml", "--out-toml"), ("out_report", "--out-report")]
 
 
+def _yaml_ignore(value: str) -> str:
+    """相手のツール専用のキーの値をそのまま返す（検査しない。feat-043）"""
+    return value
+
+
 def parse_args_with_config(
     argv: list[str] | None,
     parser: argparse.ArgumentParser,
     converters: dict[str, Callable[[str], object]],
     required_options: list[tuple[str, str]],
+    ignored_keys: frozenset[str] = frozenset(),
 ) -> argparse.Namespace:
     """CLI と設定YAML（--config）を統合してパースする（feat-042、3 ツール共用）。
 
     優先順位は CLI の明示指定 > 設定YAML > 既定値。parser.set_defaults でパーサーを
     書き換えるので、呼び出しごとに新しく生成したパーサーを渡すこと。
+
+    ignored_keys（feat-043）: 設定YAMLに書かれていても値の検査・変換をせず黙って無視するキー
+    （共用 YAML の相手のツール専用のキー）。converters のキーと重ならないこと。
     """
+    assert not (set(converters) & set(ignored_keys)), "ignored_keys が converters と重なっています"
     tokens = sys.argv[1:] if argv is None else list(argv)
 
     # 1. --config の省略形（--co〜--confi）を最初に検出する（"--" より後ろは検査しない）
@@ -1003,9 +1013,11 @@ def parse_args_with_config(
     args = first
     if first.config is not None:
         try:
-            defaults = parse_config_yaml(first.config, parser, converters=converters)
+            all_converters = {**converters, **{k: _yaml_ignore for k in ignored_keys}}
+            defaults = parse_config_yaml(first.config, parser, converters=all_converters)
         except UnicodeDecodeError as e:
             parser.error(f"--config が UTF-8 として読めません: {first.config}: {e}")
+        defaults = {k: v for k, v in defaults.items() if k not in ignored_keys}
         parser.set_defaults(**defaults)
         args = parser.parse_args(tokens)
 

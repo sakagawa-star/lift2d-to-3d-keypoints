@@ -2,6 +2,14 @@
 
 ## リリース履歴
 
+### 2026-11-26
+
+- **feat-043**: スマートフォン静止画の前処理と推定で 1 つの設定 YAML を共用
+  - `prepare_phone_photo.py` に `--config <設定YAML>` を追加（方式は feat-042 と同じ。CLI > 設定YAML > 既定値、`parse_args_with_config` を再利用）。同じファイル・同じ値には CLI・YAML・両ツールで同じ名前を付け、共用 YAML に各パスを 1 回だけ明示的に書けば `prepare_phone_photo.py` と `estimate_intrinsics_loop.py` の両方が動く（暗黙の命名規則は追加しない。ディレクトリ + 決まったファイル名で中間ファイルを置く案はユーザー判断で却下）
+  - 名前の変更（旧名は残さない）: 前処理 `--out-toml` → `--init-toml`、`--points-2d-out` → `--points-2d`、`--points-2d-in` → `--points-2d-original`、推定 `--toml`（キー `toml`）→ `--init-toml`（キー `init_toml`）。推定から `refine_extrinsics.py` への subprocess 引数は不変
+  - 相手のツールのキーは値の検査もせず黙って無視（`parse_args_with_config` に `ignored_keys` を追加）。どちらにも無いキーは従来どおり終了コード 2。両ツールとも `allow_abbrev=False`（相手のオプション名が省略形として通らないように）。前処理の `--camera` にも推定と同じパス区切りの拒否を追加（終了コード 1）
+  - テスト: `tests/test_feat043_shared_yaml.py` 新規 21 件、既存の feat-041 / feat-042 テストを新しい名前に置き換え、全体 742 passed / 1 skipped（`tests/results/feat-043_test_result.txt`）。Codex レビュー codex-01〜11（依頼文に「致命的な点のみ」の前提）。実装は Sonnet サブエージェント委任（途中で推定の省略形の問題が見つかり、文書を直してから再実装）。手動テスト合格（2026-11-26、10F で共用 YAML 1 つで前処理→推定を完走し median 0.671px・合格、旧名・相手のオプションは終了コード 2）
+
 ### 2026-11-25
 
 - **feat-042**: 精緻化ツール 3 本の設定 YAML（--config）対応
