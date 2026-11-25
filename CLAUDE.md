@@ -116,6 +116,9 @@ lift2d-to-3d-keypoints/
 │   ├── filter_npz.py                  # NPZキーポイントの時間方向平滑化（NPZ→NPZ、C3D・Blender不要、NaN区間維持・追加キー無加工コピー。feat-028）
 │   ├── refine_extrinsics.py           # 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化バッチ（K既知、サンプリング型受理判定、Calib_scene.toml型出力+診断レポート。feat-026）
 │   ├── adjust_extrinsics_multiview.py # 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点〔エピポーラ整合フィルタつき〕+ 3DGSアンカーのバンドル調整、K既知。初期ポーズは全台 feat-026 精緻化済みを --init-cameras で明示指定。ホールドアウト評価・診断レポート・ポーズ確定カメラのみのTOML出力。feat-035）
+│   ├── prepare_phone_photo.py         # スマートフォン静止画の前処理（Exif 検査、16:9 中央切り抜き→1920x1080、Exif から初期TOML、2D点の座標変換。feat-041）
+│   ├── estimate_intrinsics_loop.py    # レンダ＋マッチング反復（i=0 MASt3R、i≥1 LoFTR）による内部（f・主点・k1・k2）・外部パラメータ同時推定 → refine_extrinsics.py で最終精緻化 → 重ね合わせ評価（--overwrite なし、収束しきい値 Δ_intr<2.0px、未収束時もループ結果TOML出力。feat-041）
+│   ├── evaluate_overlay.py            # 写真とレンダの重ね合わせ評価（DIS フローのずれ、合否は valid_ratio≥0.10 かつ中央値≤1.0px、p95 は記録のみ。確認画像3種。feat-041）
 │   ├── render_fps_video.py            # NPZ直読みFPS動画一括生成（頭部キーポイントからポーズをnumpy計算、ピンホールK、NaN=黒画面、チャンク分割+耐久書き出し+ffprobe破損検査つき再開、静止画/ポーズダンプ排他モード、--config YAML対応、--gpus でチャンク並列レンダリング〔単一GPU複数ワーカー/複数GPU対応、動的分配、失敗時即時中止〕、完了時に <MP4名>_info.txt を自動保存、--start-frame/--end-frame でMP4・ポーズダンプのフレーム範囲指定〔frame_id 基準、既定出力名に実範囲〕。feat-027/029/030/031/040）
 │   └── data/                          # データファイル（gitignore）
 ├── matcher_lab/                       # 学習ベースマッチャー環境（独立した uv 環境。feat-026）

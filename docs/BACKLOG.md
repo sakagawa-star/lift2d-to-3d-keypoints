@@ -52,6 +52,8 @@
 | feat-038 | 機能追加 | render_keypoints.py 複数人全員のFPS視錐台の同時描画（--fps-person all） | Closed |
 | feat-039 | 機能追加 | C3D → NPZ 変換スクリプト（render_fps_video.py で C3D 由来のキーポイントを使うため） | Closed |
 | feat-040 | 機能追加 | render_fps_video.py のフレーム範囲指定（start_frame / end_frame） | Closed |
+| feat-041 | 機能追加 | レンダ＋マッチング反復による内部パラメータ（K・歪み）と外部パラメータの同時推定（スマートフォン静止画用） | Closed |
+| bug-006 | 不具合 | estimate_intrinsics_loop.py の最終精緻化の一時ファイル（{camera}_final.toml.tmp）が入力 TOML を上書きし得る | Open |
 
 ## ステータス凡例
 

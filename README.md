@@ -207,6 +207,9 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き（複数人対応） / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知） |
 | `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知） |
+| `prepare_phone_photo.py` | スマートフォン静止画の前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、Exif から初期 TOML、2D 点の座標変換。feat-041） |
+| `estimate_intrinsics_loop.py` | レンダ＋マッチング反復による内部パラメータ（f・主点・k1・k2）と外部パラメータの同時推定 → `refine_extrinsics.py` で最終精緻化 → 重ね合わせ評価（スマートフォン静止画用。feat-041） |
+| `evaluate_overlay.py` | 写真とレンダの重ね合わせ評価（DIS オプティカルフローのずれの統計・合否判定・確認画像。feat-041） |
 | `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング、`--start-frame` / `--end-frame` でフレーム範囲指定） |
 
 ### camera_pose.py（カメラポーズ書き出し）
@@ -453,6 +456,40 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extr
 - 処理段: ペアマッチング（NPZキャッシュ再利用、`--fresh-match` で再実行）→ エピポーラフィルタ（採用ペアグラフで全カメラ単一連結でなければエラー）→ アンカー取得 → バンドル調整（非悪化フォールバック: アンカー残差が 0.3px 超悪化したカメラは BA 前ポーズに戻す）→ ホールドアウト評価・レポート (a)〜(i)・TOML出力
 - 事前準備: `uv sync --project matcher_lab` に加え、MASt3R のリポジトリ（`~/git/mast3r`）とチェックポイント（`~/data/models/mast3r/`）、LoFTR 重み（refine_extrinsics.py と共通）が必要
 - 処理時間の目安: 初回はペアマッチ28ペア + アンカー8台の生成で数十分、中間NPZキャッシュ再利用時は10分前後（RTX 5060 Ti 実測。BA 本体は約4分）
+
+### estimate_intrinsics_loop.py ほか（スマートフォン静止画の内部・外部パラメータ推定。feat-041）
+
+3DGS を作った部屋で撮ったスマートフォンの静止画 1 枚（Galaxy S25 で確認）について、チェッカーボードを使わずに内部パラメータ（f（fx=fy）・主点・k1・k2）と外部パラメータ（R, t）を推定する。手順は 3 本のスクリプトで構成する。
+
+```bash
+# 1. 前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、Exif の 35mm 換算焦点距離から初期 TOML、2D 点の座標変換）
+uv run --project phase4 python phase4/prepare_phone_photo.py \
+  --image <原本JPEG> --camera <カメラ名> \
+  --images-dir <前処理後画像の出力ディレクトリ> --out-toml <初期TOML> \
+  --points-2d-in <原本座標の2D点CSV> --points-2d-out <前処理後座標の2D点CSV> \
+  [--expect-model "Galaxy S25"] [--expect-focal-mm 5.4] [--overwrite]
+
+# 2. 推定（手動点 PnP → 反復（i=0 は MASt3R、i≥1 は LoFTR）で内部・外部パラメータを同時最小二乗
+#    → 収束後に refine_extrinsics.py で外部パラメータを最終精緻化 → 重ね合わせ評価まで自動）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py \
+  --toml <初期TOML> --camera <カメラ名> --ply <3DGS PLY> --images-dir <前処理後画像ディレクトリ> \
+  --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <新規の出力ディレクトリ> \
+  [--tmp-dir <中間ファイル置き場>]
+
+# 3. 重ね合わせ評価だけを単体で行う場合
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_overlay.py \
+  --toml <TOML> --camera <カメラ名> --ply <3DGS PLY> --image <前処理後画像PNG> \
+  --out-prefix <出力接頭辞> [--overwrite]
+```
+
+- 前処理後の画像は 1920x1080 のみ対応（4:3 で撮った写真は上下を切り抜いて 16:9 にする）。2D 点 CSV は原本の画素座標で用意し、前処理で変換する（画素中心規約）
+- `estimate_intrinsics_loop.py` の出力（`--out-dir` 配下）: `{カメラ名}_loop.toml`（ループ結果）、`{カメラ名}_final.toml`（最終結果）、`{カメラ名}_loop_report.txt`、`{カメラ名}_refine_report.txt`、評価の 4 ファイル（`{カメラ名}_eval.txt`、`_eval_blend.png`、`_eval_checker.png`、`_eval_flowmag.png`）
+- 収束判定: 反復 i ≥ 1 で内部パラメータの変化量 Δ_intr < 2.0px（上限 8 反復）。未収束の場合も最後の反復の値で `{カメラ名}_loop.toml` を書いて終了コード 3
+- 終了コード: 0=成功（評価まで実行。評価の合否は問わない）、1=入力エラー・環境異常・出力済み、2=引数エラー、3=ループ失敗・未収束・範囲外、4=最終精緻化で不受理
+- `--overwrite` は無い。出力ファイルが 1 つでも `--out-dir` にあれば開始前に終了コード 1。再実行は新しい `--out-dir` を指定するか、前回の出力を手で削除する。**`--out-dir` には実行前に存在しない新規ディレクトリ（入力ファイルを含まない）を指定する**（bug-006 の修正までの運用条件）。同じ出力先での同時実行はしない
+- 評価の合否: 集計対象画素の割合 ≥ 0.10 かつ写真→レンダのずれ（DIS）の中央値 ≤ 1.0px で「合格」。p95 は記録のみ（3DGS の局所的な再現誤差に左右されるため）。`_eval.txt` には丸めない値 `valid_ratio_raw`・`median_raw` も出る
+- 事前準備: `uv sync --project matcher_lab`、MASt3R（`~/git/mast3r`、`~/data/models/mast3r/`）と LoFTR 重み（`refine_extrinsics.py` と共通）
+- 処理時間の目安: 約 2.5 分（10F の実データ、RTX 5060 Ti。うち `refine_extrinsics.py` が約 2 分）
 
 ### render_fps_video.py（NPZ直読みFPS動画一括生成。feat-027/029/030/031/040）
 
