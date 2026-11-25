@@ -27,6 +27,8 @@
                        cam41520554 cam41520556 cam41520557 cam41520558 \\
         --out-toml <out.toml> --out-report <report.txt> \\
         [--cameras <name>...] [--overwrite] [--seed 5000] [--tmp-dir <dir>] [--fresh-match]
+    設定YAMLで指定する場合（feat-042）:
+    TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/adjust_extrinsics_multiview.py --config run.yaml
 
 設計根拠: docs/issues/feat-035-multiview-extrinsic-bundle-adjustment/design.md
 """
@@ -52,14 +54,18 @@ from refine_extrinsics import (
     LOFTR_CONF_TH,
     NEAR_PLANE,
     _format_camera_section,
+    _yaml_names,
+    _yaml_str,
     call_matcher,
     depth_variance_map,
     gate_breakdown,
+    parse_args_with_config,
     pose_diff,
     render_depth_alpha_distorted,
     sample_depth_bilinear,
     sched,
 )
+from render_fps_video import _yaml_bool
 from render_keypoints import load_cameras_toml, render_image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1165,15 +1171,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="8台多視点同時外部パラメータ調整"
                     "（MASt3Rクロスカメラ + 3DGSアンカー、feat-035）")
-    p.add_argument("--toml", required=True, help="内部パラメータTOML（intrinsics_all.toml型。K既知）")
-    p.add_argument("--ply", required=True, help="3DGS PLYファイル")
-    p.add_argument("--images-dir", required=True, help="実写画像ディレクトリ（<camera_name>.png）")
+    p.add_argument("--toml", default=None, help="内部パラメータTOML（intrinsics_all.toml型。K既知）（--config でも指定可）")
+    p.add_argument("--ply", default=None, help="3DGS PLYファイル（--config でも指定可）")
+    p.add_argument("--images-dir", default=None, help="実写画像ディレクトリ（<camera_name>.png）（--config でも指定可）")
     p.add_argument("--init-toml", default=None,
                   help="初期ポーズTOML（1台分以上。未指定はエラー）")
     p.add_argument("--init-cameras", nargs="+", default=None,
                   help="初期ポーズを信頼するカメラ名（省略時は --init-toml の全カメラ）")
-    p.add_argument("--out-toml", required=True, help="出力TOMLパス")
-    p.add_argument("--out-report", required=True, help="診断レポートtxtパス")
+    p.add_argument("--out-toml", default=None, help="出力TOMLパス（--config でも指定可）")
+    p.add_argument("--out-report", default=None, help="診断レポートtxtパス（--config でも指定可）")
     p.add_argument("--cameras", nargs="+", default=None,
                   help="対象カメラ名（省略時はTOML×画像の積集合全て）")
     p.add_argument("--overwrite", action="store_true", help="出力ファイルの上書きを許可する")
@@ -1183,11 +1189,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
                   help="中間PNG/NPZ置き場（省略時は<out-tomlの親>/tmp_feat035/）")
     p.add_argument("--fresh-match", action="store_true",
                   help="既存のペアマッチングNPZを無視して再実行する")
+    p.add_argument("--config", default=None,
+                   help="設定YAML（フラット key: value）。キーはオプション名の -- を除き - を _ にしたもの。"
+                        "優先順位は CLI > 設定YAML > 既定値。"
+                        "フラグ（--overwrite/--fresh-match）は CLI から true 方向にだけ上書きできる"
+                        "（設定YAMLの true を false に戻すには設定YAMLを編集する）")
     return p
 
 
+CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
+    "toml": _yaml_str, "ply": _yaml_str, "images_dir": _yaml_str,
+    "init_toml": _yaml_str, "init_cameras": _yaml_names,
+    "out_toml": _yaml_str, "out_report": _yaml_str, "cameras": _yaml_names,
+    "overwrite": _yaml_bool, "seed": int, "tmp_dir": _yaml_str, "fresh_match": _yaml_bool,
+}
+REQUIRED_OPTIONS = [("toml", "--toml"), ("ply", "--ply"), ("images_dir", "--images-dir"),
+                    ("out_toml", "--out-toml"), ("out_report", "--out-report")]
+
+
 def main(argv=None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parse_args_with_config(argv, parser, CONFIG_CONVERTERS, REQUIRED_OPTIONS)
 
     try:
         _check_can_write(args.out_toml, args.overwrite, "出力TOML")

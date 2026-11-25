@@ -491,7 +491,7 @@ judge:
 - 前処理後画像のファイル名は `{camera}.png`（`refine_extrinsics.py` の規約）
 - 出力ファイル名は §1.3 のとおり。評価の 4 ファイルは `estimate_intrinsics_loop.py` が `out_prefix = {out-dir}/{camera}_eval` で `evaluate_and_write` を呼ぶことで、`{camera}_eval.txt`、`{camera}_eval_blend.png`、`{camera}_eval_checker.png`、`{camera}_eval_flowmag.png` になる
 - 中間ファイル（`--tmp-dir`）: `iter{i:02d}_render.png`、`iter{i:02d}_matches.npz`（i = 0 は MASt3R の NPZ でキー `u_a`, `u_b`, `meta`、i ≥ 1 は LoFTR の NPZ でキー `u_q`, `u_r`, `conf`, `meta`）、`refine/`（`refine_extrinsics.py` の中間）。`--out-dir` と `--tmp-dir` には存在しない新しいパスを指定する（既に存在すれば終了コード 1。bug-006）。`--tmp-dir` 省略時はシステムの一時ディレクトリを使い、終了時（終了コードによらず）に削除する
-- 設定ファイルは使わない（CLI 引数のみ）
+- 設定ファイルは使わない（CLI 引数のみ）。※ feat-042 で `--config`（設定YAML）に対応した（`docs/issues/feat-042-config-yaml-refine-tools/`）
 
 ## 6. インターフェース定義
 

@@ -19,6 +19,8 @@
         --points-3d <3D基準点CSV> --points-2d <2D点CSV> \\
         --out-toml <出力TOML> --out-report <レポートtxt> \\
         [--cameras cam1 cam2 ...] [--overwrite] [--seed-base 5000] [--tmp-dir <中間PNG/NPZ置き場>]
+    設定YAMLで指定する場合（feat-042）:
+    TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/refine_extrinsics.py --config run.yaml
 
 設計根拠: docs/issues/feat-026-render-match-extrinsic-refinement/design.md
 本ファイルの定数はすべて design.md §3.1 の表の値をそのまま使用する（実装判断ゼロの原則）。
@@ -31,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -43,6 +46,7 @@ from render_keypoints import (
     render_image,
     select_camera,
 )
+from render_fps_video import _yaml_bool, parse_config_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MATCHER_LAB_DIR = ROOT / "matcher_lab"
@@ -922,24 +926,98 @@ def _check_can_write(path: str, overwrite: bool, label: str) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="レンダリング＋自動マッチングによるカメラ外部パラメータ精緻化（feat-026）")
-    p.add_argument("--toml", required=True, help="入力TOML（Calib_scene.toml型。K既知）")
-    p.add_argument("--ply", required=True, help="3DGS PLYファイル")
-    p.add_argument("--images-dir", required=True, help="実写画像ディレクトリ（<camera_name>.png）")
-    p.add_argument("--points-3d", required=True, help="3D基準点CSV（kijunten_locations.csv形式）")
-    p.add_argument("--points-2d", required=True, help="2D点CSV（points_2d.csv形式）")
-    p.add_argument("--out-toml", required=True, help="出力TOMLパス")
-    p.add_argument("--out-report", required=True, help="診断レポートtxtパス")
+    p.add_argument("--toml", default=None, help="入力TOML（Calib_scene.toml型。K既知）（--config でも指定可）")
+    p.add_argument("--ply", default=None, help="3DGS PLYファイル（--config でも指定可）")
+    p.add_argument("--images-dir", default=None, help="実写画像ディレクトリ（<camera_name>.png）（--config でも指定可）")
+    p.add_argument("--points-3d", default=None, help="3D基準点CSV（kijunten_locations.csv形式）（--config でも指定可）")
+    p.add_argument("--points-2d", default=None, help="2D点CSV（points_2d.csv形式）（--config でも指定可）")
+    p.add_argument("--out-toml", default=None, help="出力TOMLパス（--config でも指定可）")
+    p.add_argument("--out-report", default=None, help="診断レポートtxtパス（--config でも指定可）")
     p.add_argument("--cameras", nargs="+", default=None, help="対象カメラ名（省略時は自動選択）")
     p.add_argument("--overwrite", action="store_true", help="出力ファイルの上書きを許可する")
     p.add_argument("--seed-base", type=int, default=SEED_BASE_DEFAULT,
                    help=f"サンプリング乱数のseed基点（既定{SEED_BASE_DEFAULT}）")
     p.add_argument("--tmp-dir", default=None,
                    help="中間PNG/NPZ置き場（省略時はシステム一時ディレクトリを使い、正常終了時に削除）")
+    p.add_argument("--config", default=None,
+                   help="設定YAML（フラット key: value）。キーはオプション名の -- を除き - を _ にしたもの。"
+                        "優先順位は CLI > 設定YAML > 既定値。"
+                        "フラグ（--overwrite）は CLI から true 方向にだけ上書きできる"
+                        "（設定YAMLの true を false に戻すには設定YAMLを編集する）")
     return p
 
 
+def _yaml_str(value: str) -> str:
+    """設定YAMLの文字列値（パス・カメラ名）。NUL 文字を含む値は拒否する。"""
+    if "\x00" in value:
+        raise argparse.ArgumentTypeError("NUL 文字を含む値は指定できません")
+    return value
+
+
+def _yaml_names(value: str) -> list[str]:
+    """設定YAMLの複数カメラ名（スペース区切り、1 個以上）を変換する。"""
+    if "\x00" in value:
+        raise argparse.ArgumentTypeError("NUL 文字を含む値は指定できません")
+    names = value.split()
+    if not names:
+        raise argparse.ArgumentTypeError("カメラ名を 1 個以上、スペース区切りで指定してください")
+    return names
+
+
+CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
+    "toml": _yaml_str, "ply": _yaml_str, "images_dir": _yaml_str,
+    "points_3d": _yaml_str, "points_2d": _yaml_str,
+    "out_toml": _yaml_str, "out_report": _yaml_str, "cameras": _yaml_names,
+    "overwrite": _yaml_bool, "seed_base": int, "tmp_dir": _yaml_str,
+}
+REQUIRED_OPTIONS = [("toml", "--toml"), ("ply", "--ply"), ("images_dir", "--images-dir"),
+                    ("points_3d", "--points-3d"), ("points_2d", "--points-2d"),
+                    ("out_toml", "--out-toml"), ("out_report", "--out-report")]
+
+
+def parse_args_with_config(
+    argv: list[str] | None,
+    parser: argparse.ArgumentParser,
+    converters: dict[str, Callable[[str], object]],
+    required_options: list[tuple[str, str]],
+) -> argparse.Namespace:
+    """CLI と設定YAML（--config）を統合してパースする（feat-042、3 ツール共用）。
+
+    優先順位は CLI の明示指定 > 設定YAML > 既定値。parser.set_defaults でパーサーを
+    書き換えるので、呼び出しごとに新しく生成したパーサーを渡すこと。
+    """
+    tokens = sys.argv[1:] if argv is None else list(argv)
+
+    # 1. --config の省略形（--co〜--confi）を最初に検出する（"--" より後ろは検査しない）
+    for tok in tokens:
+        if tok == "--":
+            break
+        name = tok.split("=", 1)[0]
+        if name.startswith("--co") and name != "--config" and "--config".startswith(name):
+            parser.error(f"--config は省略せずに指定してください: {name}")
+
+    # 2. 設定YAMLを読まずに 1 回解釈する（--help・曖昧な省略形・型エラーはここで終了）
+    first = parser.parse_args(tokens)
+
+    # 3. 設定YAMLを既定値に昇格させてから再解釈する（CLI の明示指定が優先）
+    args = first
+    if first.config is not None:
+        try:
+            defaults = parse_config_yaml(first.config, parser, converters=converters)
+        except UnicodeDecodeError as e:
+            parser.error(f"--config が UTF-8 として読めません: {first.config}: {e}")
+        parser.set_defaults(**defaults)
+        args = parser.parse_args(tokens)
+
+    missing = [label for dest, label in required_options if getattr(args, dest) is None]
+    if missing:
+        parser.error(f"必須項目が未指定です（CLIまたは--configで指定）: {', '.join(missing)}")
+    return args
+
+
 def main(argv=None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parse_args_with_config(argv, parser, CONFIG_CONVERTERS, REQUIRED_OPTIONS)
 
     report_lines: list[str] = []
     summary_counts = {"受理(単峰)": 0, "受理(仲裁)": 0, "不受理": 0, "失敗": 0}

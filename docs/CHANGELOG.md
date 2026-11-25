@@ -4,6 +4,13 @@
 
 ### 2026-11-25
 
+- **feat-042**: 精緻化ツール 3 本の設定 YAML（--config）対応
+  - `refine_extrinsics.py`・`adjust_extrinsics_multiview.py`・`estimate_intrinsics_loop.py` に `--config <設定YAML>` を追加。方式は feat-029 / feat-033 と同じ（CLI > 設定YAML > 既定値、`key: value` のフラット形式、`render_fps_video.py` の `load_yaml_flat`・`_yaml_bool`・`parse_config_yaml` を再利用。新規ライブラリなし）。キーはオプションの dest 名（11 / 12 / 8 キー）、複数カメラ名はスペース区切り、相対パスはカレントディレクトリ基準（ヒアリング確定）
+  - 共通の統合パース `parse_args_with_config` と変換関数 `_yaml_str`（NUL 文字を拒否）・`_yaml_names` を `refine_extrinsics.py` に置き、他の 2 本は import。必須引数は `required=True` を外して統合後に検証。手順は「`--config` の省略形のトークン検査（`--co`〜`--confi`、`--` で打ち切り）→ 本パーサーで 1 回解釈 → 設定YAMLを読んで set_defaults → 再解釈 → 必須項目検証」。不正な UTF-8 は終了コード 2
+  - 後方互換の例外: 必須項目欠落時のエラー文言と、`unrecognized arguments` との同時発生時の報告順が変わる（終了コード 2 は同じ）。`--c`（従来 `--camera` / `--cameras` の省略形）は `--config` と曖昧になり使えない。`estimate_intrinsics_loop.py` の最終精緻化の subprocess 呼び出しは CLI 引数のまま
+  - テスト: `tests/test_feat042_config_yaml.py` 新規 47 件、全体 721 passed / 1 skipped（`tests/results/feat-042_test_result.txt`）。既存テストの変更なし。Codex レビュー codex-01〜20（事前パーサー方式を省略形の抜け道により取り下げ。全文ゲート 5 回目でユーザー指示の「致命的な点のみ指摘」前提を付けて通過）。実装は Sonnet サブエージェント委任。手動テスト合格（2026-11-25、10F で `--config` だけで完走し feat041_out_it2 と同じ結果）
+  - 範囲外として bug-007（`estimate_intrinsics_loop.py` の最終精緻化が cwd=ROOT のため、ルート外から相対パスで実行するとパスがずれる）を起票
+
 - **bug-006**: estimate_intrinsics_loop.py の最終精緻化の一時ファイル・中間ファイルによる入力上書きの防止
   - 原因: 出力済み検査が出力 8 ファイルだけを対象にしており、途中で書く `{camera}_final.toml.tmp`（`refine_extrinsics.py` が `open("w")` → 移動）と `--tmp-dir` 配下（`iter*_render.png` 等）を検査していなかった。既存ディレクトリにそれらの名前で入力へのリンクや入力そのものがあると、入力が上書きされ得た
   - 修正: `--out-dir` と `--tmp-dir`（指定時）を、存在しないパスとして `mkdir(parents=True, exist_ok=False)` で新しく作る（既に存在すれば空でも・リンク先の無いシンボリックリンクでも終了コード 1）。新しく作ったディレクトリの中身はこのプロセスが書いたものだけになる。`--tmp-dir` の作成失敗時は作った `--out-dir` を `rmdir`（失敗しても元のエラーを表示して終了コード 1）。`--camera` はパス区切り・`..` を含む名前を拒否（出力が `--out-dir` の外に出るのを防ぐ）。`refine_extrinsics.py` は変更なし

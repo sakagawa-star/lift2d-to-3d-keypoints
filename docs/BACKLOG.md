@@ -54,6 +54,8 @@
 | feat-040 | 機能追加 | render_fps_video.py のフレーム範囲指定（start_frame / end_frame） | Closed |
 | feat-041 | 機能追加 | レンダ＋マッチング反復による内部パラメータ（K・歪み）と外部パラメータの同時推定（スマートフォン静止画用） | Closed |
 | bug-006 | 不具合 | estimate_intrinsics_loop.py の最終精緻化の一時ファイル（{camera}_final.toml.tmp）が入力 TOML を上書きし得る | Closed |
+| feat-042 | 機能追加 | 精緻化ツール 3 本（refine_extrinsics.py / adjust_extrinsics_multiview.py / estimate_intrinsics_loop.py）の設定 YAML（--config）対応 | Closed |
+| bug-007 | 不具合 | estimate_intrinsics_loop.py の最終精緻化（cwd=ROOT の subprocess）で相対パスの基準がずれる | Open |
 
 ## ステータス凡例
 

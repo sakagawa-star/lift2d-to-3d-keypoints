@@ -13,6 +13,8 @@
         --toml <初期TOML> --camera <カメラ名> --ply <PLY> --images-dir <前処理後画像ディレクトリ> \\
         --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <出力ディレクトリ> \\
         [--tmp-dir <中間ファイル置き場>]
+    設定YAMLで指定する場合（feat-042）:
+    TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py --config run.yaml
 
 終了コード: 0=成功、1=入力エラー・環境異常・出力済み、2=引数エラー、
             3=ループ失敗（点数不足・RANSAC失敗・OOM・未収束・範囲外）、4=最終精緻化で不受理
@@ -27,6 +29,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -47,6 +50,7 @@ from refine_extrinsics import (
     MatcherEnvError,
     MatcherOOM,
     _format_toml_value,
+    _yaml_str,
     call_matcher,
     check_matcher_meta,
     depth_variance_map,
@@ -54,6 +58,7 @@ from refine_extrinsics import (
     load_points_2d_csv,
     load_points_3d_csv,
     median_reproj_px,
+    parse_args_with_config,
     pnp_manual,
     render_depth_alpha_distorted,
     validate_camera,
@@ -388,15 +393,27 @@ def _format_iter_line(i: int, diag: dict, p: Params, delta: float) -> str:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="レンダ＋マッチング反復による内部・外部パラメータの同時推定（feat-041）")
-    p.add_argument("--toml", required=True, help="初期TOML")
-    p.add_argument("--camera", required=True, help="カメラ名")
-    p.add_argument("--ply", required=True, help="3DGS PLYファイル")
-    p.add_argument("--images-dir", required=True, help="前処理後画像ディレクトリ（<camera>.png）")
-    p.add_argument("--points-3d", required=True, help="3D基準点CSV")
-    p.add_argument("--points-2d", required=True, help="前処理後座標の2D点CSV")
-    p.add_argument("--out-dir", required=True, help="出力ディレクトリ")
+    p.add_argument("--toml", default=None, help="初期TOML（--config でも指定可）")
+    p.add_argument("--camera", default=None, help="カメラ名（--config でも指定可）")
+    p.add_argument("--ply", default=None, help="3DGS PLYファイル（--config でも指定可）")
+    p.add_argument("--images-dir", default=None, help="前処理後画像ディレクトリ（<camera>.png）（--config でも指定可）")
+    p.add_argument("--points-3d", default=None, help="3D基準点CSV（--config でも指定可）")
+    p.add_argument("--points-2d", default=None, help="前処理後座標の2D点CSV（--config でも指定可）")
+    p.add_argument("--out-dir", default=None, help="出力ディレクトリ（--config でも指定可）")
     p.add_argument("--tmp-dir", default=None, help="中間ファイル置き場（省略時は一時ディレクトリ）")
+    p.add_argument("--config", default=None,
+                   help="設定YAML（フラット key: value）。キーはオプション名の -- を除き - を _ にしたもの。"
+                        "優先順位は CLI > 設定YAML > 既定値")
     return p
+
+
+CONFIG_CONVERTERS: dict[str, Callable[[str], object]] = {
+    "toml": _yaml_str, "camera": _yaml_str, "ply": _yaml_str, "images_dir": _yaml_str,
+    "points_3d": _yaml_str, "points_2d": _yaml_str, "out_dir": _yaml_str, "tmp_dir": _yaml_str,
+}
+REQUIRED_OPTIONS = [("toml", "--toml"), ("camera", "--camera"), ("ply", "--ply"),
+                    ("images_dir", "--images-dir"), ("points_3d", "--points-3d"),
+                    ("points_2d", "--points-2d"), ("out_dir", "--out-dir")]
 
 
 def _out_paths(out_dir: Path, camera: str) -> dict:
@@ -529,7 +546,8 @@ def _run(args, out: dict, tmp_dir: Path, rep: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parse_args_with_config(argv, parser, CONFIG_CONVERTERS, REQUIRED_OPTIONS)
     camera = args.camera
     out_dir = Path(args.out_dir)
     out = _out_paths(out_dir, camera)
