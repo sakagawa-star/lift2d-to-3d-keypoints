@@ -565,6 +565,132 @@ def test_20_overwrite_removed_and_dangling_link(tmp_path):
     assert not target.exists() and not target.parent.exists()
 
 
+def _bug006_setup(monkeypatch, tmp_path, camera="camA"):
+    """テスト 19 と同じモック。run_loop_iteration の呼び出し履歴を返す。"""
+    K0 = np.array([[1280.0, 0, 960.0], [0, 1280.0, 540.0], [0, 0, 1]])
+    cam0 = {"K": K0, "D": np.zeros(4), "width": 1920, "height": 1080,
+            "rvec": np.zeros(3), "tvec": np.zeros(3)}
+    img_path = tmp_path / "camA.png"
+    calls = []
+
+    def mock_params(i):
+        return Params(1280.0 + 20.0 * (i % 2) + 0.1 * i, 960.0 + 0.01 * i, 540.0 - 0.01 * i,
+                      0.001 * i, -0.001 * i,
+                      np.array([0.01 * i, 0.02, 0.03]), np.array([0.1 * i, 0.2, 0.3]))
+
+    def mock_run_loop_iteration(gaussians, params, image_path, i, tmp_dir):
+        calls.append(i)
+        diag = {"matcher": "LoFTR", "matches": 1000, "N": 800, "inl": 700, "rmse": 1.0,
+                "cover": 16, "lsq_status": 1, "elapsed": 0.1}
+        return {"ok": True, "params": mock_params(i), "diag": diag}
+
+    monkeypatch.setattr(eil, "load_cameras_toml", lambda path: {camera: cam0})
+    monkeypatch.setattr(eil, "select_camera", lambda cams, name: cams[name])
+    monkeypatch.setattr(eil, "load_points_3d_csv", lambda path: {})
+    monkeypatch.setattr(eil, "load_points_2d_csv", lambda path: {})
+    monkeypatch.setattr(eil, "validate_camera", lambda *a, **k: {
+        "ok": True, "p3": np.zeros((6, 3)), "p2": np.zeros((6, 2)),
+        "names": list("abcdef"), "image_path": img_path})
+    monkeypatch.setattr(eil, "pnp_manual",
+                        lambda *a, **k: (np.zeros(3), np.zeros(3), np.arange(6)))
+    monkeypatch.setattr(eil, "median_reproj_px", lambda *a, **k: 0.0)
+    monkeypatch.setattr(eil, "run_loop_iteration", mock_run_loop_iteration)
+    dummy = types.ModuleType("render")
+    dummy.load_ply = lambda path: object()
+    monkeypatch.setitem(sys.modules, "render", dummy)
+    return calls
+
+
+def _bug006_args(tmp_path, camera, out_dir, tmp_dir=None):
+    a = ["--toml", "x.toml", "--camera", camera, "--ply", "x.ply",
+         "--images-dir", str(tmp_path), "--points-3d", "a.csv",
+         "--points-2d", "b.csv", "--out-dir", str(out_dir)]
+    if tmp_dir is not None:
+        a += ["--tmp-dir", str(tmp_dir)]
+    return a
+
+
+def test_23_out_dir_must_be_new(monkeypatch, tmp_path):
+    calls = _bug006_setup(monkeypatch, tmp_path)
+    # (a) 既存の空ディレクトリ
+    out_a = tmp_path / "outA"
+    out_a.mkdir()
+    assert eil.main(_bug006_args(tmp_path, "camA", out_a)) == 1
+    assert list(out_a.iterdir()) == []
+    # (b) リンク先の無いシンボリックリンク
+    out_b = tmp_path / "outB"
+    out_b.symlink_to(tmp_path / "nowhere")
+    assert eil.main(_bug006_args(tmp_path, "camA", out_b)) == 1
+    assert out_b.is_symlink() and not (tmp_path / "nowhere").exists()
+    # (c) 未作成の親と .. を含み既存ディレクトリを指すパス
+    outx = tmp_path / "outx"
+    outx.mkdir()
+    old = outx / "camA_final.toml.tmp"
+    old.write_text("old", encoding="utf-8")
+    assert eil.main(_bug006_args(tmp_path, "camA", tmp_path / "new2" / ".." / "outx")) == 1
+    assert old.read_text(encoding="utf-8") == "old"
+    assert calls == []
+
+
+def test_24_tmp_dir_must_be_new(monkeypatch, tmp_path, capsys):
+    calls = _bug006_setup(monkeypatch, tmp_path)
+    # (a) 既存の空ディレクトリ
+    tmp_a = tmp_path / "tmpA"
+    tmp_a.mkdir()
+    out_a = tmp_path / "outA"
+    assert eil.main(_bug006_args(tmp_path, "camA", out_a, tmp_a)) == 1
+    assert not out_a.exists() and list(tmp_a.iterdir()) == []
+    # (b) リンク先の無いシンボリックリンク
+    tmp_b = tmp_path / "tmpB"
+    tmp_b.symlink_to(tmp_path / "nowhere")
+    out_b = tmp_path / "outB"
+    assert eil.main(_bug006_args(tmp_path, "camA", out_b, tmp_b)) == 1
+    assert not out_b.exists() and tmp_b.is_symlink()
+    assert calls == []
+    # (c) 対照: 存在しないパスなら従来どおり進む
+    out_c = tmp_path / "outC"
+    assert eil.main(_bug006_args(tmp_path, "camA", out_c, tmp_path / "tmpC")) == 3
+    assert calls == list(range(8))
+
+
+def test_25_parent_symlink_reuse(monkeypatch, tmp_path):
+    calls = _bug006_setup(monkeypatch, tmp_path)
+    existing = tmp_path / "existing"
+    (existing / "sub").mkdir(parents=True)
+    old = existing / "sub" / "iter00_render.png"
+    old.write_text("old", encoding="utf-8")
+    (tmp_path / "link").symlink_to("new/../existing")
+    out_dir = tmp_path / "new"
+    code = eil.main(_bug006_args(tmp_path, "camA", out_dir, tmp_path / "link" / "sub"))
+    assert code == 1
+    assert old.read_text(encoding="utf-8") == "old"
+    assert calls == []
+    assert not out_dir.exists()
+
+
+def test_26_camera_name_restriction(monkeypatch, tmp_path):
+    calls = _bug006_setup(monkeypatch, tmp_path)
+    victim_report = tmp_path / "victim_loop_report.txt"
+    victim_report.write_text("old", encoding="utf-8")
+    for i, cam in enumerate([str(tmp_path / "victim"), "sub/cam", ".."]):
+        out_dir = tmp_path / f"out26_{i}"
+        assert eil.main(_bug006_args(tmp_path, cam, out_dir)) == 1
+        assert not out_dir.exists()
+    assert victim_report.read_text(encoding="utf-8") == "old"
+    assert calls == []
+
+
+def test_27_tmp_dir_creation_partial_failure(monkeypatch, tmp_path, capsys):
+    calls = _bug006_setup(monkeypatch, tmp_path)
+    out_dir = tmp_path / "new"
+    code = eil.main(_bug006_args(tmp_path, "camA", out_dir, out_dir / "sub" / ".."))
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "中間ファイル置き場が既に存在します" in err
+    assert "作成したディレクトリが残っています" in err
+    assert calls == []
+
+
 def test_21_format_eval_txt():
     stats = {"n_valid": 207360, "valid_ratio": 0.1, "median": 1.0004, "p95": 4.0,
              "mean": 1.2, "max": 50.0}

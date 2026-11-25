@@ -21,7 +21,6 @@
 """
 import argparse
 import datetime
-import os
 import subprocess
 import sys
 import tempfile
@@ -535,18 +534,38 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir)
     out = _out_paths(out_dir, camera)
 
-    all_paths = [out["loop_toml"], out["final_toml"], out["loop_report"],
-                 out["refine_report"]] + [Path(p) for p in eval_output_paths(out["eval_prefix"]).values()]
-    for pth in all_paths:
-        if os.path.lexists(pth):
-            print(f"エラー: 出力ファイルが既に存在します: {pth}", file=sys.stderr)
-            return 1
-
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if (camera in ("", ".", "..") or Path(camera).name != camera
+            or "/" in camera or "\\" in camera):
+        print(f"エラー: カメラ名にはパス区切りを含まない名前を指定してください: {camera}", file=sys.stderr)
+        return 1
+    # bug-006: 書き込み先のディレクトリは存在しないパスとして新しく作る（既存ディレクトリ内の
+    # リンクや入力を、一時ファイル {camera}_final.toml.tmp や中間ファイルで上書きしないため）
+    try:
+        out_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f"エラー: 出力ディレクトリが既に存在します（存在しない新しいパスを指定してください）: {out_dir}",
+              file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"エラー: 出力ディレクトリを作成できません: {out_dir}（{e}）", file=sys.stderr)
+        return 1
     tmp_ctx = None
     if args.tmp_dir:
         tmp_dir = Path(args.tmp_dir)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            tmp_dir.mkdir(parents=True, exist_ok=False)
+        except OSError as e:
+            try:
+                out_dir.rmdir()   # 直前に作った出力ディレクトリを消す（空でなければ失敗する）
+            except OSError:
+                print(f"エラー: 作成したディレクトリが残っています（手で削除してください）: {out_dir}",
+                      file=sys.stderr)
+            if isinstance(e, FileExistsError):
+                print(f"エラー: 中間ファイル置き場が既に存在します（存在しない新しいパスを指定してください）: {tmp_dir}",
+                      file=sys.stderr)
+            else:
+                print(f"エラー: 中間ファイル置き場を作成できません: {tmp_dir}（{e}）", file=sys.stderr)
+            return 1
     else:
         tmp_ctx = tempfile.TemporaryDirectory(prefix="feat041_")
         tmp_dir = Path(tmp_ctx.name)

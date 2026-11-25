@@ -2,7 +2,7 @@
 
 ## ステータス
 
-Open（2026-11-25 起票。feat-041 イテレーション2 の Codex レビュー codex-23 指摘1（高）で発見。feat-041 では BUGFIX_STANDARD.md §2.3 によりスコープ外とした）
+Closed（2026-11-25 完了。修正: --out-dir / --tmp-dir を存在しない新規パスとして mkdir(exist_ok=False) で作成、カメラ名のパス区切りを拒否。Codex レビュー codex-01〜06（途中で「書き込む前にパスを検査する」案を行き詰まり検出により取り下げ）、テスト 674 passed / 1 skipped、手動テスト合格。起票: feat-041 イテレーション2 の Codex レビュー codex-23 指摘1（高））
 
 ## 概要
 

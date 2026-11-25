@@ -206,8 +206,8 @@ fisheye = false
 ```
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py \
     --toml <初期TOML> --camera <カメラ名> --ply <PLY> --images-dir <前処理後画像ディレクトリ> \
-    --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <出力ディレクトリ> \
-    [--tmp-dir <中間ファイル置き場>]
+    --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <出力ディレクトリ（存在しない新しいパス）> \
+    [--tmp-dir <中間ファイル置き場（存在しない新しいパス）>]
 ```
 
 終了コード: 0=成功（最終精緻化で受理され、評価を実行した。評価の合否は問わない）、1=入力エラー・環境異常・出力済み、2=引数エラー、3=ループ失敗（点数不足、RANSAC 失敗、MASt3R の OOM が再試行後も発生、LoFTR の OOM、未収束、範囲外）、4=最終精緻化で不受理。
@@ -217,13 +217,24 @@ main:
   out = §1.3 の 8 ファイルのパス（--out-dir 配下）。内訳: {camera}_loop.toml、{camera}_final.toml、
         {camera}_loop_report.txt、{camera}_refine_report.txt と、
         evaluate_overlay.eval_output_paths(str(out_dir / f"{camera}_eval")) が返す 4 パス
-  いずれかが存在する → エラー(1)。存在の判定は os.path.lexists（リンク先の無いシンボリックリンクも「存在する」とみなす）
+  カメラ名の制限（bug-006 codex-04）: camera が "" / "." / ".." のいずれか、または Path(camera).name != camera、または "/" か "\\" を含む
+      → エラー(1)。出力ファイル名にそのまま連結されるので、パス区切りを含む名前で --out-dir の外へ書かないため
+  --out-dir を mkdir(parents=True, exist_ok=False) で新しく作る（bug-006）。
+      FileExistsError → エラー(1)「出力ディレクトリが既に存在します（存在しない新しいパスを指定してください）」
+      その他の OSError → エラー(1)。存在の判定は OS が作成時に行うので、パスの書き方（.. を含む等）や途中のシンボリックリンクの
+      解決によらない。リンク先の無いシンボリックリンクも「存在する」として拒否される
+      新しく作ったディレクトリの中身はこのプロセスとその子プロセスが書いたファイルだけになるので、出力 8 ファイルの個別検査は不要
+      （最終精緻化の一時ファイル {camera}_final.toml.tmp も、前から置かれていたリンクや入力に当たらない）
       --overwrite オプションは持たない（イテレーション2。今回の実行が途中で終わったときに前回の _final.toml や評価ファイルが
-      残って今回の結果と混在するのを防ぐため。再実行は新しい --out-dir を指定するか、利用者が前回の出力を手で削除する）
+      残って今回の結果と混在するのを防ぐため。再実行は新しい --out-dir を指定するか、利用者が前回のディレクトリを手で削除する）
       同じ --out-dir・カメラ名で実行する場合は、前の実行が終了してから起動する（同時実行の排他は行わない。requirements.md §5）
-      bug-006 の修正までの運用条件: `--out-dir` には、実行前に存在しない新規のディレクトリ（入力ファイルを含まない）を指定する（最終精緻化の一時ファイル `{camera}_final.toml.tmp` が、残っていたリンク経由で入力を上書きし得るため）
-  --out-dir を作る（exist_ok）
-  tmp_dir = --tmp-dir（作る） or TemporaryDirectory（正常終了時に削除）
+  --tmp-dir 指定時: mkdir(parents=True, exist_ok=False) で新しく作る（bug-006）。
+      FileExistsError → 直前に作った空の --out-dir を rmdir で消してからエラー(1)「中間ファイル置き場が既に存在します（存在しない新しいパスを指定してください）」
+      その他の OSError → 同じく --out-dir を rmdir で消してからエラー(1)
+      後始末の rmdir が OSError で失敗しても（--tmp-dir の作成が親を途中まで作ってから失敗した場合など。例: --tmp-dir {out-dir}/sub/..）、
+      元のエラーを表示して終了コード 1。「作成したディレクトリが残っています（手で削除してください）: {out_dir}」も表示する（codex-04）
+  --tmp-dir 省略時: tmp_dir = TemporaryDirectory（正常終了時に削除）
+  上記で拒否した場合は、レポートを含め何も書かない（作った --out-dir は消す）
   cams = load_cameras_toml(--toml); cam0 = select_camera(cams, --camera)   # 無ければエラー(1)
   p3d = load_points_3d_csv; p2d = load_points_2d_csv
   v = validate_camera(camera, cam0, --images-dir, p3d, p2d)   # refine_extrinsics の関数
@@ -414,7 +425,7 @@ res = scipy.optimize.least_squares(residuals, x0, args=(X, u), method="trf",
 - 終了状態: 「成功」「未収束（ループ結果 TOML は最後の反復の値）」「範囲外（違反内容）」「ループ失敗（理由）」「精緻化不受理」「refine_extrinsics.py が異常終了（終了コード {n}）」「エラー（理由）」のいずれか（終了コードとの対応は §4.2.1 の「終了状態とループ結果 TOML の有無」の表）。評価の統計値と判定は、評価を実行した場合（終了コード 0）だけ記録する
 - `refine_extrinsics.py` の所要時間[s]（最終精緻化を実行した場合）、評価の所要時間[s]（評価を実行した場合）
 
-レポートを書くのは、§4.2.1 の出力済み検査（8 ファイルのいずれかが存在する場合の拒否）を通過した後に終了する場合だけで、終了コード（0, 1, 3, 4）によらず終了の直前に書き出す。出力済み検査で拒否した場合と引数エラー（終了コード 2）の場合は、レポートを含め `--out-dir` 配下に一切書き込まず、理由を標準エラー出力にだけ出す（既存の出力を壊さないため。NFR-004）。例外として、ファイルの書き込み自体が OSError で失敗した場合（ディスク容量不足など）は、Python の例外で異常終了する（終了コード 1。§4.2.1 の表の注記。初版の収束時と同じ）。レポート以外（ループ結果 TOML、評価の 4 ファイルなど）の書き込みが失敗した場合は、レポートの書き込みに進まない（レポートは作成されない）。それまでに書かれた成果物（ループ結果 TOML、最終 TOML など）や途中まで書いたファイルは残り得る。レポート自体の書き込みが失敗した場合は、不完全なレポートが残り得る。どの場合も、残ったファイルがあると同じ出力先での再実行は出力済み検査で拒否される（codex-36 指摘4）。
+レポートを書くのは、§4.2.1 の`--out-dir`・`--tmp-dir` の新規作成（§4.2.1。bug-006）に成功した後に終了する場合だけで、終了コード（0, 1, 3, 4）によらず終了の直前に書き出す。新規作成で拒否した場合と引数エラー（終了コード 2）の場合は、レポートを含め `--out-dir` 配下に一切書き込まず、理由を標準エラー出力にだけ出す（既存の出力を壊さないため。NFR-004）。例外として、ファイルの書き込み自体が OSError で失敗した場合（ディスク容量不足など）は、Python の例外で異常終了する（終了コード 1。§4.2.1 の表の注記。初版の収束時と同じ）。レポート以外（ループ結果 TOML、評価の 4 ファイルなど）の書き込みが失敗した場合は、レポートの書き込みに進まない（レポートは作成されない）。それまでに書かれた成果物（ループ結果 TOML、最終 TOML など）や途中まで書いたファイルは残り得る。レポート自体の書き込みが失敗した場合は、不完全なレポートが残り得る。どの場合も、同じ出力先での再実行は --out-dir が既に存在するので拒否される（codex-36 指摘4）。
 
 ### 4.3 FR-008 `evaluate_overlay.py`
 
@@ -479,7 +490,7 @@ judge:
 - 入力: 原本 JPEG、PLY、3D 基準点 CSV（`kijunten_locations.csv` 形式）、2D 点 CSV（`points_2d.csv` 形式）
 - 前処理後画像のファイル名は `{camera}.png`（`refine_extrinsics.py` の規約）
 - 出力ファイル名は §1.3 のとおり。評価の 4 ファイルは `estimate_intrinsics_loop.py` が `out_prefix = {out-dir}/{camera}_eval` で `evaluate_and_write` を呼ぶことで、`{camera}_eval.txt`、`{camera}_eval_blend.png`、`{camera}_eval_checker.png`、`{camera}_eval_flowmag.png` になる
-- 中間ファイル（`--tmp-dir`）: `iter{i:02d}_render.png`、`iter{i:02d}_matches.npz`（i = 0 は MASt3R の NPZ でキー `u_a`, `u_b`, `meta`、i ≥ 1 は LoFTR の NPZ でキー `u_q`, `u_r`, `conf`, `meta`）、`refine/`（`refine_extrinsics.py` の中間）。`--tmp-dir` 省略時はシステムの一時ディレクトリを使い、終了時（終了コードによらず）に削除する
+- 中間ファイル（`--tmp-dir`）: `iter{i:02d}_render.png`、`iter{i:02d}_matches.npz`（i = 0 は MASt3R の NPZ でキー `u_a`, `u_b`, `meta`、i ≥ 1 は LoFTR の NPZ でキー `u_q`, `u_r`, `conf`, `meta`）、`refine/`（`refine_extrinsics.py` の中間）。`--out-dir` と `--tmp-dir` には存在しない新しいパスを指定する（既に存在すれば終了コード 1。bug-006）。`--tmp-dir` 省略時はシステムの一時ディレクトリを使い、終了時（終了コードによらず）に削除する
 - 設定ファイルは使わない（CLI 引数のみ）
 
 ## 6. インターフェース定義
@@ -580,6 +591,11 @@ i=2 | LoFTR マッチ5321 N=4410 inl=3102 RMSE=0.912px | f=1283.41 cx=957.88 cy=
 | 19 | 未収束時のループ結果 TOML | `estimate_intrinsics_loop` のモジュール属性を monkeypatch で置き換えて `main` を呼ぶ。置き換える属性: `load_cameras_toml`、`select_camera`、`load_points_3d_csv`、`load_points_2d_csv`、`validate_camera`（`{"ok": True, ...}`）、`pnp_manual`、`median_reproj_px`、`run_loop_iteration`。`run_loop_iteration` のモックは呼び出し回数を記録し、反復 i ごとに固有の値を返す: f = 1280 + 20 × (i mod 2) + 0.1 × i、cx = 960 + 0.01 × i、cy = 540 − 0.01 × i、k1 = 0.001 × i、k2 = −0.001 × i、rvec = (0.01 × i, 0.02, 0.03)、tvec = (0.1 × i, 0.2, 0.3)（毎回 Δ_intr ≥ 2.0 になる）。`sys.modules["render"]` に `load_ply` を持つダミーモジュールを入れる | 終了コード 3。`run_loop_iteration` がちょうど 8 回（i = 0〜7）呼ばれる。`{camera}_loop.toml` が存在し、`render_keypoints.load_cameras_toml` で読み戻した K（f, cx, cy）、D（k1, k2）、rvec、tvec が i = 7 の値と 1e-9 以内で一致する（i = 5 など他の反復の値とは一致しない）。`{camera}_final.toml` と評価の 4 ファイルは存在しない。レポートに「未収束（ループ結果 TOML は最後の反復の値）」がある |
 | 20 | `--overwrite` の廃止とリンクの検出 | (a) `main` に `--overwrite` を付けて呼ぶ。(b) `--out-dir` に、リンク先が存在しないシンボリックリンク `{camera}_final.toml` を作って `main` を呼ぶ | (a) 終了コード 2（argparse の引数エラー）。(b) 終了コード 1、`--out-dir` 配下に新しいファイルが作られず、リンク先のパスにもファイルが作られない |
 | 21 | `format_eval_txt` | stats（n_valid=207360、valid_ratio=0.1、median=1.0004、p95=4.0、mean=1.2、max=50.0）と判定 "不合格" で文字列を作る | `median: 1.000 px` と `median_raw: 1.0004`、`valid_ratio_raw: 0.1` の行があり、`_raw` の行の値を `float()` で読むと元の値と完全に一致する。合格ラインの行が `合格ライン: median <= 1.000 px（valid_ratio >= 0.100）。p95 は記録のみ` |
+| 23 | `--out-dir` の新規作成（bug-006） | テスト 19 と同じモックで、`--out-dir` に (a) 既存の空ディレクトリ、(b) リンク先の無いシンボリックリンク、(c) 未作成の親と `..` を含み既存ディレクトリを指すパス（`{tmp_path}/new2/../outx`。`outx` は既存で、中に `{camera}_final.toml.tmp`（内容 "old"）を置く）を指定して `main` を呼ぶ | どれも終了コード 1。`run_loop_iteration` は呼ばれない。(a) は空のまま。(b) のリンクはそのまま。(c) の `{camera}_final.toml.tmp` は内容 "old" のまま |
+| 24 | `--tmp-dir` の新規作成（bug-006） | テスト 19 と同じモックで、`--out-dir` は存在しないパス、`--tmp-dir` に (a) 既存の空ディレクトリ、(b) リンク先の無いシンボリックリンクを指定して `main` を呼ぶ。対照として (c) 存在しないパス | (a)(b) 終了コード 1、`run_loop_iteration` は呼ばれず、`--out-dir` は残っていない（作ってから消される）。(c) 従来どおり進む（テスト 19 と同じ終了コード 3） |
+| 25 | 親成分のシンボリックリンク（bug-006、codex-03 の配置） | `{tmp_path}/existing/sub/iter00_render.png`（内容 "old"）を置き、`{tmp_path}/link -> new/../existing` のシンボリックリンクを作る（`new` は未作成）。`--out-dir {tmp_path}/new --tmp-dir {tmp_path}/link/sub` で `main` を呼ぶ（テスト 19 と同じモック） | 終了コード 1。`iter00_render.png` は内容 "old" のまま。`run_loop_iteration` は呼ばれない。`{tmp_path}/new` は残っていない |
+| 26 | カメラ名の制限（bug-006） | テスト 19 と同じモックで、`--camera` に (a) `{tmp_path}/victim`（絶対パス。`{tmp_path}/victim_loop_report.txt` に内容 "old" を置く）、(b) `sub/cam`、(c) `..` を指定し、`--out-dir` は存在しないパスで `main` を呼ぶ | どれも終了コード 1。`--out-dir` は作られない。(a) の `victim_loop_report.txt` は内容 "old" のまま |
+| 27 | `--tmp-dir` 作成の途中失敗（bug-006） | テスト 19 と同じモックで、`--out-dir {tmp_path}/new --tmp-dir {tmp_path}/new/sub/..` で `main` を呼ぶ | 終了コード 1（例外で落ちない）。標準エラー出力に「中間ファイル置き場が既に存在します」と「作成したディレクトリが残っています」の両方が出る。`run_loop_iteration` は呼ばれない |
 
 テスト結果は `tests/results/feat-041_test_result.txt` に `uv run pytest -v` の出力をそのまま保存する。
 
@@ -623,7 +639,7 @@ i=2 | LoFTR マッチ5321 N=4410 inl=3102 RMSE=0.912px | f=1283.41 cx=957.88 cy=
    ```
    合格ラインは手順 4 と同じ（`feat041_out_it1/s25_20261124_152436_eval.txt` の判定が「合格」）。実行直前の予測値（反復数、各反復のマッチャー・マッチ数・N・RMSE の範囲、最終 f・k1・k2、評価の中央値・p95）と実行後の実測値、および前回の結果（median 1.171px、p95 13.125px）との比較表を `experiments/e2_10F_loftr/experiment_log.md` に記録する。あわせて `/usr/bin/time -v` の Elapsed (wall clock) time を記録し、NFR-001（全体 60 分以内）を満たすことを確認する
 6. investigation.md イテレーション2（CONV_PX = 2.0、未収束時の TOML 出力、合否基準を中央値のみに変更）の確認: 手順 1・2 は再実行しない。手順 3 を出力先だけ変えて実行する:
-   **事前確認（実行前に必ず行う。bug-006 の回避条件）**: (1) 出力先 `phase4/data/10F/feat041_out_it2` と中間ディレクトリ `phase4/data/10F/feat041_tmp_it2` がどちらも存在しないこと（それぞれ `test ! -e {パス} && test ! -L {パス}`。リンク先の無いシンボリックリンクも「存在する」とみなす。中間ディレクトリも確認するのは、`iter00_render.png` などへの書き込みが、残っていたリンク経由で入力を上書きし得るため。codex-31 指摘1）、(2) `--toml` などの入力ファイルがすべて `phase4/data/10F/feat041_out_it2` の外にあること。どちらかを満たさなければ正式な実行を開始せず、状況を報告して中断する。確認結果は実験ログに記録する。
+   **事前確認（実行前に必ず行う。bug-006 の回避条件）**: (1) 出力先 `phase4/data/10F/feat041_out_it2` と中間ディレクトリ `phase4/data/10F/feat041_tmp_it2` がどちらも存在しないこと（それぞれ `test ! -e {パス} && test ! -L {パス}`。リンク先の無いシンボリックリンクも「存在する」とみなす。中間ディレクトリも確認するのは、`iter00_render.png` などへの書き込みが、残っていたリンク経由で入力を上書きし得るため。codex-31 指摘1）、(2) `--toml` などの入力ファイルがすべて `phase4/data/10F/feat041_out_it2` の外にあること。どちらかを満たさなければ正式な実行を開始せず、状況を報告して中断する。確認結果は実験ログに記録する。（bug-006 の修正後は、`--out-dir`・`--tmp-dir` が存在しないことをツール側でも検査する）
    ```
    exit_code=0
    TORCH_CUDA_ARCH_LIST="9.0+PTX" /usr/bin/time -v uv run --project phase4 python phase4/estimate_intrinsics_loop.py \

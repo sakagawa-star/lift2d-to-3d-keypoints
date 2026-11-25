@@ -474,7 +474,7 @@ uv run --project phase4 python phase4/prepare_phone_photo.py \
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py \
   --toml <初期TOML> --camera <カメラ名> --ply <3DGS PLY> --images-dir <前処理後画像ディレクトリ> \
   --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <新規の出力ディレクトリ> \
-  [--tmp-dir <中間ファイル置き場>]
+  [--tmp-dir <新規の中間ファイル置き場>]
 
 # 3. 重ね合わせ評価だけを単体で行う場合
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_overlay.py \
@@ -486,7 +486,7 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_ov
 - `estimate_intrinsics_loop.py` の出力（`--out-dir` 配下）: `{カメラ名}_loop.toml`（ループ結果）、`{カメラ名}_final.toml`（最終結果）、`{カメラ名}_loop_report.txt`、`{カメラ名}_refine_report.txt`、評価の 4 ファイル（`{カメラ名}_eval.txt`、`_eval_blend.png`、`_eval_checker.png`、`_eval_flowmag.png`）
 - 収束判定: 反復 i ≥ 1 で内部パラメータの変化量 Δ_intr < 2.0px（上限 8 反復）。未収束の場合も最後の反復の値で `{カメラ名}_loop.toml` を書いて終了コード 3
 - 終了コード: 0=成功（評価まで実行。評価の合否は問わない）、1=入力エラー・環境異常・出力済み、2=引数エラー、3=ループ失敗・未収束・範囲外、4=最終精緻化で不受理
-- `--overwrite` は無い。出力ファイルが 1 つでも `--out-dir` にあれば開始前に終了コード 1。再実行は新しい `--out-dir` を指定するか、前回の出力を手で削除する。**`--out-dir` には実行前に存在しない新規ディレクトリ（入力ファイルを含まない）を指定する**（bug-006 の修正までの運用条件）。同じ出力先での同時実行はしない
+- `--overwrite` は無い。`--out-dir` と、指定した場合の `--tmp-dir` は**存在しない新しいパス**を指定する（処理開始前に新しく作る。既に存在すれば空でも終了コード 1）。再実行は新しいパスを指定するか、前回のディレクトリを手で削除する。`--camera` はパス区切りを含まない名前に限る。同じ出力先での同時実行はしない（bug-006 で、途中で書く一時ファイル・中間ファイルが入力を上書きしないよう修正）
 - 評価の合否: 集計対象画素の割合 ≥ 0.10 かつ写真→レンダのずれ（DIS）の中央値 ≤ 1.0px で「合格」。p95 は記録のみ（3DGS の局所的な再現誤差に左右されるため）。`_eval.txt` には丸めない値 `valid_ratio_raw`・`median_raw` も出る
 - 事前準備: `uv sync --project matcher_lab`、MASt3R（`~/git/mast3r`、`~/data/models/mast3r/`）と LoFTR 重み（`refine_extrinsics.py` と共通）
 - 処理時間の目安: 約 2.5 分（10F の実データ、RTX 5060 Ti。うち `refine_extrinsics.py` が約 2 分）
