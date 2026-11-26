@@ -404,7 +404,7 @@ res = scipy.optimize.least_squares(residuals, x0, args=(X, u), method="trf",
 
 ループ結果 TOML（`{camera}_loop.toml`）は §4.1.3 と同じ書式で、`matrix = [[f,0,cx],[0,f,cy],[0,0,1]]`、`distortions = [k1, k2, 0.0, 0.0]`、`rotation` / `translation` は最後の反復の値にする。
 
-最終精緻化は次のコマンドを subprocess で実行する（cwd はプロジェクトルート、環境変数は継承）:
+最終精緻化は次のコマンドを subprocess で実行する（cwd は指定せず呼び出し元のカレントディレクトリを継承、環境変数も継承。相対パスは呼び出し元と同じ基準で解釈される。bug-007）:
 
 ```
 [sys.executable, ROOT/"phase4/refine_extrinsics.py",

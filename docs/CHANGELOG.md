@@ -4,6 +4,12 @@
 
 ### 2026-11-26
 
+- **bug-007**: estimate_intrinsics_loop.py の最終精緻化で相対パスの基準がずれる不具合の修正
+  - 原因: 最終精緻化の `refine_extrinsics.py` を `subprocess.run(..., cwd=str(ROOT))`（プロジェクトルート）で起動し、利用者の相対パス（と相対の `--out-dir` / `--tmp-dir` から作ったパス）をそのまま渡していた。プロジェクトルート以外から相対パスで実行すると、ループは収束するが最終精緻化が「入力TOMLを読み込めません」で終了コード 1 になっていた（`phase4/` から実行して再現を確認）。入力がプロジェクトルート側にもたまたま存在すると、`--overwrite` 付きで `--out-dir` の外に書き込む危険もあった
+  - 修正: `cwd` の指定を外し、子プロセスが親のカレントディレクトリを継承するようにした（1 行）。`refine_extrinsics.py` はカレントディレクトリに依存しない（自分の位置から `ROOT` を求める）ため変更なし。絶対パス化する案は、変更箇所が広くシンボリックリンクを含むパスで親の解釈とずれうるため採らなかった
+  - 文書: feat-041 design.md §4.2.6、feat-042 design.md §6 テスト16 を修正後の仕様に変更。README の「相対パスの注意（bug-007）」を削除し、feat-042 / feat-043 requirements.md に修正済みの注記
+  - テスト: feat-042 テスト16 を「`cwd` を渡さない」に変更、`tests/test_feat041_intrinsics_loop.py` にテスト28（別ディレクトリから相対パスで実行）を追加、全体 743 passed / 1 skipped（`tests/results/bug-007_test_result.txt`）。Codex レビュー codex-01〜07。実装は Sonnet サブエージェント委任。手動テスト合格（2026-11-26、`uv run --directory phase4` で相対パス実行し median 0.671px・合格、出力 8 ファイル）
+
 - **feat-043**: スマートフォン静止画の前処理と推定で 1 つの設定 YAML を共用
   - `prepare_phone_photo.py` に `--config <設定YAML>` を追加（方式は feat-042 と同じ。CLI > 設定YAML > 既定値、`parse_args_with_config` を再利用）。同じファイル・同じ値には CLI・YAML・両ツールで同じ名前を付け、共用 YAML に各パスを 1 回だけ明示的に書けば `prepare_phone_photo.py` と `estimate_intrinsics_loop.py` の両方が動く（暗黙の命名規則は追加しない。ディレクトリ + 決まったファイル名で中間ファイルを置く案はユーザー判断で却下）
   - 名前の変更（旧名は残さない）: 前処理 `--out-toml` → `--init-toml`、`--points-2d-out` → `--points-2d`、`--points-2d-in` → `--points-2d-original`、推定 `--toml`（キー `toml`）→ `--init-toml`（キー `init_toml`）。推定から `refine_extrinsics.py` への subprocess 引数は不変

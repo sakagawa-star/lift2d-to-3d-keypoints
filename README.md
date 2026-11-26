@@ -538,7 +538,6 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_ov
   - 推定のキー: `init_toml` `camera` `ply` `images_dir` `points_3d` `points_2d` `out_dir`（以上必須）、`tmp_dir`。`out_dir`・`tmp_dir` は CLI と同じく存在しない新しいパスを書く
   - 両ツールともオプションの省略形を受け付けない（`--conf`、`--init` なども終了コード 2）。相手のツールのオプション（例: 推定に `--image`）を CLI で渡すと終了コード 2
 - 名前の変更（feat-043。旧名は使えない）: 前処理 `--out-toml` → `--init-toml`、`--points-2d-out` → `--points-2d`、`--points-2d-in` → `--points-2d-original`。推定 `--toml`（キー `toml`）→ `--init-toml`（キー `init_toml`）
-- 相対パスの注意（bug-007）: 最終精緻化の `refine_extrinsics.py` はプロジェクトルート基準でパスを解釈するため、修正まではプロジェクトルートで実行するか、すべてのパスを絶対パスで指定する（設定YAMLに書くパスも同じ）
 
 共用設定YAMLの例（前処理と推定の両方に `--config` で渡す。プロジェクトルートで実行）:
 

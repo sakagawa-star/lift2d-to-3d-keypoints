@@ -691,6 +691,54 @@ def test_27_tmp_dir_creation_partial_failure(monkeypatch, tmp_path, capsys):
     assert calls == []
 
 
+def test_28_relative_paths_from_other_cwd(monkeypatch, tmp_path):
+    """bug-007: 最終精緻化の子プロセスは親のカレントディレクトリを継承する（cwd を渡さない）。"""
+    _bug006_setup(monkeypatch, tmp_path)
+    const = Params(1280.0, 960.0, 540.0, 0.0, 0.0, np.zeros(3), np.zeros(3))
+
+    def const_run_loop_iteration(gaussians, params, image_path, i, tmp_dir):
+        diag = {"matcher": "LoFTR", "matches": 1000, "N": 800, "inl": 700, "rmse": 1.0,
+                "cover": 16, "lsq_status": 1, "elapsed": 0.1}
+        return {"ok": True, "params": const, "diag": diag}
+
+    monkeypatch.setattr(eil, "run_loop_iteration", const_run_loop_iteration)
+    monkeypatch.setattr(eil, "evaluate_and_write", lambda *a, **k: {
+        "n_valid": 100, "valid_ratio": 0.9, "median": 1.0, "p95": 2.0,
+        "mean": 1.1, "max": 3.0, "judge": "OK"})
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    recorded: list = []
+
+    def fake_run(cmd, **kwargs):
+        recorded.append((list(cmd), kwargs))
+        Path(cmd[cmd.index("--out-report") + 1]).write_text("  camA: 受理(単峰)\n", encoding="utf-8")
+        src = Path(cmd[cmd.index("--toml") + 1]).read_text(encoding="utf-8")
+        Path(cmd[cmd.index("--out-toml") + 1]).write_text(src, encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(eil.subprocess, "run", fake_run)
+    code = eil.main(["--init-toml", "x.toml", "--camera", "camA", "--ply", "x.ply",
+                     "--images-dir", "in_images", "--points-3d", "a.csv",
+                     "--points-2d", "b.csv", "--out-dir", "out", "--tmp-dir", "wtmp"])
+    assert code == 0
+    assert len(recorded) == 1
+    cmd, kwargs = recorded[0]
+    # 1. cwd を渡していない
+    assert "cwd" not in kwargs
+    # 2. --toml はカレントディレクトリ基準で work/out/camA_loop.toml を指す
+    toml_path = Path(cmd[cmd.index("--toml") + 1])
+    assert toml_path.exists()
+    assert toml_path.resolve() == (work / "out" / "camA_loop.toml").resolve()
+    # 3. 出力・中間ファイルの置き場
+    out_root = (work / "out").resolve()
+    out_toml = Path(cmd[cmd.index("--out-toml") + 1]).resolve()
+    out_report = Path(cmd[cmd.index("--out-report") + 1]).resolve()
+    assert out_toml == out_root / "camA_final.toml"
+    assert out_report == out_root / "camA_refine_report.txt"
+    assert Path(cmd[cmd.index("--tmp-dir") + 1]).resolve() == (work / "wtmp" / "refine").resolve()
+
+
 def test_21_format_eval_txt():
     stats = {"n_valid": 207360, "valid_ratio": 0.1, "median": 1.0004, "p95": 4.0,
              "mean": 1.2, "max": 50.0}

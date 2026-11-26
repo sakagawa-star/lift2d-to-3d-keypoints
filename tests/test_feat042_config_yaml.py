@@ -610,7 +610,7 @@ def test_16_subprocess_command_unchanged(monkeypatch, tmp_path):
                 "--cameras", "camA", "--tmp-dir", str(work_tmp / "refine"), "--overwrite"]
     assert cmd == expected
     assert "--config" not in cmd
-    assert kwargs["cwd"] == str(ROOT)
+    assert "cwd" not in kwargs
 
 
 # === 17. YAML 由来の既存 out_dir の拒否 ===

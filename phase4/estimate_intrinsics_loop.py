@@ -520,7 +520,7 @@ def _run(args, out: dict, tmp_dir: Path, rep: list[str]) -> int:
            "--points-2d", args.points_2d, "--out-toml", str(out["final_toml"]),
            "--out-report", str(out["refine_report"]), "--cameras", camera,
            "--tmp-dir", str(tmp_dir / "refine"), "--overwrite"]
-    r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True)
     t_refine = time.time() - t0
     rep.append(f"refine_extrinsics.py 所要時間: {t_refine:.1f}s")
     if r.returncode != 0:
