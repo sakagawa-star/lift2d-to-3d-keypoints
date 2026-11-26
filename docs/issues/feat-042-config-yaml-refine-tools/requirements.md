@@ -50,7 +50,7 @@ feat-029 / feat-033 と同じ用語を使う。
 - **機能名**: 設定キーの型変換・検証
 - **概要**: 設定キーは対象ツールごとに次の表のものに限る。値には CLI と同じ型変換を適用する
 - **入力**: 簡易フラットパーサーが返す文字列の値
-- **注記（feat-043、2026-11-26）**: `estimate_intrinsics_loop.py` の設定キー `toml` は feat-043 で `init_toml` に変わった。また `estimate_intrinsics_loop.py` は `prepare_phone_photo.py` と共用する YAML のため、前処理専用のキー（`image` `points_2d_original` `expect_model` `expect_focal_mm` `overwrite`）を未知のキーとせず黙って無視するようになった（FR-005 の 1 の例外）。現在の仕様は `docs/issues/feat-043-shared-job-yaml-phone-photo/` を参照
+- **注記（feat-043、2026-11-26）**: `estimate_intrinsics_loop.py` の設定キー `toml` は feat-043 で `init_toml` に変わった。また `estimate_intrinsics_loop.py` は `prepare_phone_photo.py` と共用する YAML のため、前処理専用のキー（`image` `points_2d_original` `expect_model` `expect_focal_mm` `overwrite`）を未知のキーとせず黙って無視するようになった（FR-005 の 1 の例外）。現在の仕様は `docs/issues/feat-043-shared-job-yaml-phone-photo/` を参照（feat-044 で `expect_model`・`expect_focal_mm` は削除され、3 ツールとも未知のキーとして終了コード 2。前処理には `photo_info` が必須になった。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照）
 - **出力**: 型変換済みの設定値
 - **詳細**: 設定キーの全列挙（これ以外のキーはエラー。FR-005）
 

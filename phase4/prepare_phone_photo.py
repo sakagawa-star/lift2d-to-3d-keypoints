@@ -1,15 +1,16 @@
 """feat-041: スマートフォン写真の前処理（FR-001）
 
-原本JPEGを中央で16:9に切り抜いて1920x1080に縮小したPNGにし、Exifから初期内部パラメータ
+原本JPEGを中央で16:9に切り抜いて1920x1080に縮小したPNGにし、写真情報ファイル（35mm換算焦点距離。
+extract_photo_info.py が Exif から書き出すか手で書く）から初期内部パラメータ
 TOML（Calib_scene.toml形式、1カメラ分）を作り、原本座標の2D点CSVを前処理後画像の座標に
 変換する。
 
 実行方法（プロジェクトルートで）:
     uv run --project phase4 python phase4/prepare_phone_photo.py \\
-        --image <原本JPEG> --camera <カメラ名> \\
+        --image <原本JPEG> --photo-info <写真情報ファイル> --camera <カメラ名> \\
         --images-dir <前処理後画像の出力ディレクトリ> --init-toml <初期TOML> \\
         --points-2d-original <原本座標の2D点CSV> --points-2d <前処理後座標の2D点CSV> \\
-        [--expect-model "Galaxy S25"] [--expect-focal-mm 5.4] [--overwrite]
+        [--overwrite]
     設定YAMLで指定する場合（推定 estimate_intrinsics_loop.py と共用の設定YAMLを渡してよい。feat-043）:
     uv run --project phase4 python phase4/prepare_phone_photo.py --config job.yaml
 
@@ -19,6 +20,7 @@ TOML（Calib_scene.toml形式、1カメラ分）を作り、原本座標の2D点
 """
 import argparse
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -31,17 +33,14 @@ from refine_extrinsics import (
     load_points_2d_csv,
     parse_args_with_config,
 )
-from render_fps_video import _yaml_bool
+from render_fps_video import _yaml_bool, load_yaml_flat
 
 OUT_W, OUT_H = 1920, 1080
 DIAG_35MM = 43.27
-FOCAL_MM_TOL = 0.05
 MIN_POINTS = 6
 
 # Exif タグ番号
-_TAG_MODEL = 0x0110
 _TAG_ORIENTATION = 0x0112
-_TAG_FOCAL_LENGTH = 0x920A
 _TAG_DIGITAL_ZOOM = 0xA404
 _TAG_FOCAL_35MM = 0xA405
 _IFD_EXIF = 0x8769
@@ -69,21 +68,14 @@ def read_exif(path: str) -> dict:
         except (TypeError, ValueError):
             return None
 
-    model = merged.get(_TAG_MODEL)
-    if isinstance(model, bytes):
-        model = model.decode("utf-8", errors="replace")
     return {
-        "Model": model if isinstance(model, str) else None,
         "Orientation": _get(_TAG_ORIENTATION, int),
-        "FocalLength": _get(_TAG_FOCAL_LENGTH, float),
-        "FocalLengthIn35mmFilm": _get(_TAG_FOCAL_35MM, int),
         "DigitalZoomRatio": _get(_TAG_DIGITAL_ZOOM, float),
         "Size": (int(size[0]), int(size[1])),
     }
 
 
-def validate_exif(exif: dict, width: int, height: int,
-                  expect_model: str | None, expect_focal_mm: float | None) -> list[str]:
+def validate_exif(exif: dict, width: int, height: int) -> list[str]:
     """Exif検査。違反をすべて独立に評価して列挙する。空リストなら合格。"""
     errors: list[str] = []
     ori = exif.get("Orientation")
@@ -91,25 +83,35 @@ def validate_exif(exif: dict, width: int, height: int,
         errors.append(f"Orientation が 1 ではありません: {ori}")
     if width <= height:
         errors.append(f"縦長または正方形の画像です（幅{width} <= 高さ{height}）")
-    f35 = exif.get("FocalLengthIn35mmFilm")
-    if f35 is None or f35 <= 0:
-        errors.append(f"FocalLengthIn35mmFilm がありません（値: {f35}）")
     dz = exif.get("DigitalZoomRatio")
     if dz is not None and dz != 1.0:
         errors.append(f"DigitalZoomRatio が 1.0 ではありません: {dz}")
-    if expect_model is not None:
-        model = exif.get("Model")
-        if model is None or model.strip() != expect_model.strip():
-            errors.append(f"Model が期待値と一致しません（期待 {expect_model!r}、実際 {model!r}）")
-    if expect_focal_mm is not None:
-        fl = exif.get("FocalLength")
-        if fl is None:
-            errors.append("FocalLength がありません")
-        elif abs(fl - expect_focal_mm) > FOCAL_MM_TOL:
-            errors.append(
-                f"FocalLength が期待値と異なります（期待 {expect_focal_mm}mm、実際 {fl}mm、"
-                f"許容 {FOCAL_MM_TOL}mm）")
     return errors
+
+
+PHOTO_INFO_KEY = "focal_length_35mm"
+
+
+def load_photo_info(path: str) -> float:
+    """写真情報ファイルから 35mm 換算焦点距離を読む（feat-044）。不正は InputError。"""
+    try:
+        d = load_yaml_flat(path)
+    except (OSError, UnicodeDecodeError) as e:
+        raise InputError(f"写真情報ファイルを読み込めません: {path}（{e}）") from e
+    unknown = sorted(k for k in d if k != PHOTO_INFO_KEY)
+    if unknown:
+        raise InputError(f"写真情報ファイルに未知のキーがあります: {', '.join(unknown)}"
+                         f"（使えるキーは focal_length_35mm だけ）: {path}")
+    if PHOTO_INFO_KEY not in d:
+        raise InputError(f"写真情報ファイルに focal_length_35mm がありません: {path}")
+    try:
+        v = float(d[PHOTO_INFO_KEY])
+    except ValueError:
+        v = float("nan")
+    if not math.isfinite(v) or v <= 0:
+        raise InputError(f"写真情報ファイルの focal_length_35mm が正の数ではありません: "
+                         f"{d[PHOTO_INFO_KEY]}: {path}")
+    return v
 
 
 def compute_crop(width: int, height: int) -> tuple[int, int]:
@@ -166,15 +168,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="スマートフォン写真の前処理（feat-041 FR-001）",
                                 allow_abbrev=False)
     p.add_argument("--image", default=None, help="原本JPEG（--config でも指定可）")
+    p.add_argument("--photo-info", default=None,
+                   help="写真情報ファイル（35mm換算焦点距離。extract_photo_info.py が書き出すか手で書く）"
+                        "（--config でも指定可）")
     p.add_argument("--camera", default=None, help="カメラ名（--config でも指定可）")
     p.add_argument("--images-dir", default=None,
                    help="前処理後画像の出力ディレクトリ（画像は <images-dir>/<camera>.png）（--config でも指定可）")
     p.add_argument("--init-toml", default=None, help="初期TOMLの出力パス（--config でも指定可）")
     p.add_argument("--points-2d-original", default=None, help="原本座標の2D点CSV（--config でも指定可）")
     p.add_argument("--points-2d", default=None, help="前処理後座標の2D点CSVの出力パス（--config でも指定可）")
-    p.add_argument("--expect-model", default=None, help="期待する機種名（Exif Model）（--config でも指定可）")
-    p.add_argument("--expect-focal-mm", type=float, default=None,
-                   help="期待する実焦点距離[mm]（--config でも指定可）")
     p.add_argument("--overwrite", action="store_true", help="出力ファイルの上書きを許可する（--config でも指定可）")
     p.add_argument("--config", default=None,
                    help="設定YAML（フラット key: value）。キーはオプション名の -- を除き - を _ にしたもの。"
@@ -185,11 +187,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 CONFIG_CONVERTERS = {
-    "image": _yaml_str, "camera": _yaml_str, "images_dir": _yaml_str, "init_toml": _yaml_str,
+    "image": _yaml_str, "photo_info": _yaml_str, "camera": _yaml_str, "images_dir": _yaml_str, "init_toml": _yaml_str,
     "points_2d_original": _yaml_str, "points_2d": _yaml_str,
-    "expect_model": _yaml_str, "expect_focal_mm": float, "overwrite": _yaml_bool,
+    "overwrite": _yaml_bool,
 }
-REQUIRED_OPTIONS = [("image", "--image"), ("camera", "--camera"), ("images_dir", "--images-dir"),
+REQUIRED_OPTIONS = [("image", "--image"), ("photo_info", "--photo-info"), ("camera", "--camera"), ("images_dir", "--images-dir"),
                     ("init_toml", "--init-toml"), ("points_2d_original", "--points-2d-original"),
                     ("points_2d", "--points-2d")]
 # 共用 YAML の相手（推定 estimate_intrinsics_loop.py）のキー（feat-043）
@@ -206,6 +208,19 @@ def _run(args) -> int:
     out_toml = Path(args.init_toml)
     out_csv = Path(args.points_2d)
 
+    # 0b. 写真情報ファイルと出力の衝突（feat-044）
+    outs = [out_png, out_toml, out_csv]
+    outs += [Path(str(p) + ".tmp") for p in outs]   # _write_atomic_* の一時ファイル
+    pi = Path(args.photo_info)
+    for o in outs:
+        same = os.path.realpath(pi) == os.path.realpath(o)
+        if not same and os.path.exists(pi) and os.path.exists(o):
+            same = os.path.samefile(pi, o)          # ハードリンクによる別名
+        if same:
+            print(f"エラー: --photo-info が前処理の出力（または書き込み途中の一時ファイル）と同じファイルを指しています: {o}",
+                  file=sys.stderr)
+            return 1
+
     # 1. 出力済み検査
     if not args.overwrite:
         for pth in (out_png, out_toml, out_csv):
@@ -214,10 +229,17 @@ def _run(args) -> int:
                       file=sys.stderr)
                 return 1
 
+    # 1b. 写真情報ファイル（feat-044）
+    try:
+        f35 = load_photo_info(args.photo_info)
+    except InputError as e:
+        print(f"エラー: {e}", file=sys.stderr)
+        return 1
+
     # 2. Exif検査
     exif = read_exif(args.image)
     width, height = exif["Size"]
-    errors = validate_exif(exif, width, height, args.expect_model, args.expect_focal_mm)
+    errors = validate_exif(exif, width, height)
     if errors:
         for e in errors:
             print(f"エラー: {e}", file=sys.stderr)
@@ -243,7 +265,7 @@ def _run(args) -> int:
     resized = cv2.resize(cropped, (OUT_W, OUT_H), interpolation=cv2.INTER_AREA)
 
     # 5. 初期焦点距離
-    f = initial_focal_px(float(exif["FocalLengthIn35mmFilm"]), width, height, OUT_W)
+    f = initial_focal_px(f35, width, height, OUT_W)
 
     # 6. 2D点の変換
     try:

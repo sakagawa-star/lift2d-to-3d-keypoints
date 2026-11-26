@@ -53,6 +53,8 @@
 
 ### FR-001 写真の前処理と初期内部パラメータ TOML の作成（`prepare_phone_photo.py`）
 
+> **注記（feat-044、2026-11-26）**: 入力と終了コード 1 の条件は feat-044 で変更された。初期焦点距離の 35mm 換算焦点距離は Exif ではなく写真情報ファイル（必須の `--photo-info`。`extract_photo_info.py` が Exif から書き出すか、手で書く）から読む。期待する機種名・実焦点距離（`--expect-model`・`--expect-focal-mm`）は削除され、`FocalLengthIn35mmFilm` が無い場合・機種名や実焦点距離が一致しない場合の終了コード 1 は無くなった。`Orientation`・`DigitalZoomRatio` の検査は Exif に値がある場合だけ行う。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
+
 - **概要**: 原本1枚を前処理後画像に変換し、Exif から初期内部パラメータの TOML を作り、原本座標で打った 2D 点 CSV を前処理後画像の座標に変換する
 - **入力**: 原本 JPEG のパス、カメラ名、出力先（画像ディレクトリ・TOML・2D 点 CSV）、原本座標の 2D 点 CSV（`points_2d.csv` 形式）、任意で期待する機種名と期待する実焦点距離[mm]
 - **出力**: `{画像ディレクトリ}/{カメラ名}.png`（1920x1080）、初期 TOML（Calib_scene.toml 形式、1カメラ分）、変換後の 2D 点 CSV（当該カメラの行のみ）

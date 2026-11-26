@@ -207,7 +207,8 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き（複数人対応） / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知）。`--config` で設定YAML指定可 |
 | `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知）。`--config` で設定YAML指定可 |
-| `prepare_phone_photo.py` | スマートフォン静止画の前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、Exif から初期 TOML、2D 点の座標変換。feat-041）。`--config` で設定YAML指定可（`estimate_intrinsics_loop.py` と 1 つの YAML を共用できる。feat-043） |
+| `extract_photo_info.py` | 原本画像の Exif から 35mm 換算焦点距離を読み、写真情報ファイル（`prepare_phone_photo.py` の入力）に書き出す。上書きしない。`--config` で設定YAML指定可（前処理・推定と 1 つの YAML を共用できる。feat-044） |
+| `prepare_phone_photo.py` | スマートフォン静止画の前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、写真情報ファイルから初期 TOML、2D 点の座標変換。feat-041）。`--config` で設定YAML指定可（`estimate_intrinsics_loop.py` と 1 つの YAML を共用できる。feat-043） |
 | `estimate_intrinsics_loop.py` | レンダ＋マッチング反復による内部パラメータ（f・主点・k1・k2）と外部パラメータの同時推定 → `refine_extrinsics.py` で最終精緻化 → 重ね合わせ評価（スマートフォン静止画用。feat-041）。`--config` で設定YAML指定可（`prepare_phone_photo.py` と共用可。feat-043） |
 | `evaluate_overlay.py` | 写真とレンダの重ね合わせ評価（DIS オプティカルフローのずれの統計・合否判定・確認画像。feat-041） |
 | `render_fps_video.py` | NPZ直読みの一人称視点（FPS）動画一括生成（Blender・C3D 不要、再開可能、YAML設定対応、`--gpus` でチャンク並列レンダリング、`--start-frame` / `--end-frame` でフレーム範囲指定） |
@@ -495,15 +496,20 @@ out_report: phase4/data/<部屋>/adjusted_report.txt
 
 ### estimate_intrinsics_loop.py ほか（スマートフォン静止画の内部・外部パラメータ推定。feat-041）
 
-3DGS を作った部屋で撮ったスマートフォンの静止画 1 枚（Galaxy S25 で確認）について、チェッカーボードを使わずに内部パラメータ（f（fx=fy）・主点・k1・k2）と外部パラメータ（R, t）を推定する。手順は 3 本のスクリプトで構成する。
+3DGS を作った部屋で撮ったスマートフォンの静止画 1 枚（Galaxy S25 で確認）について、チェッカーボードを使わずに内部パラメータ（f（fx=fy）・主点・k1・k2）と外部パラメータ（R, t）を推定する。手順は 4 本のスクリプトで構成する（写真情報の書き出し → 前処理 → 推定。評価は推定の中で自動実行し、単体でも実行できる）。
 
 ```bash
-# 1. 前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、Exif の 35mm 換算焦点距離から初期 TOML、2D 点の座標変換）
+# 0. 写真情報の書き出し（原本の Exif の 35mm 換算焦点距離を写真情報ファイルに書く。feat-044。
+#    Exif の無い画像では実行せず、写真情報ファイルを手で書く）
+uv run --project phase4 python phase4/extract_photo_info.py \
+  --image <原本JPEG> --photo-info <写真情報ファイル（存在しない新しいパス）> [--config <設定YAML>]
+
+# 1. 前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、写真情報ファイルの 35mm 換算焦点距離から初期 TOML、2D 点の座標変換）
 uv run --project phase4 python phase4/prepare_phone_photo.py \
-  --image <原本JPEG> --camera <カメラ名> \
+  --image <原本JPEG> --photo-info <写真情報ファイル> --camera <カメラ名> \
   --images-dir <前処理後画像の出力ディレクトリ> --init-toml <初期TOML> \
   --points-2d-original <原本座標の2D点CSV> --points-2d <前処理後座標の2D点CSV> \
-  [--expect-model "Galaxy S25"] [--expect-focal-mm 5.4] [--overwrite] [--config <設定YAML>]
+  [--overwrite] [--config <設定YAML>]
 
 # 2. 推定（手動点 PnP → 反復（i=0 は MASt3R、i≥1 は LoFTR）で内部・外部パラメータを同時最小二乗
 #    → 収束後に refine_extrinsics.py で外部パラメータを最終精緻化 → 重ね合わせ評価まで自動）
@@ -512,7 +518,8 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_in
   --points-3d <3D基準点CSV> --points-2d <前処理後座標の2D点CSV> --out-dir <新規の出力ディレクトリ> \
   [--tmp-dir <新規の中間ファイル置き場>] [--config <設定YAML>]
 
-# 1'+2'. 1 つの共用設定YAMLを前処理と推定の両方に渡す（feat-043。CLI 指定が YAML を上書き）
+# 0'+1'+2'. 1 つの共用設定YAMLを書き出し・前処理・推定に渡す（feat-043 / feat-044。CLI 指定が YAML を上書き）
+uv run --project phase4 python phase4/extract_photo_info.py --config <共用設定YAML>
 uv run --project phase4 python phase4/prepare_phone_photo.py --config <共用設定YAML>
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py --config <共用設定YAML>
 
@@ -522,32 +529,45 @@ TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/evaluate_ov
   --out-prefix <出力接頭辞> [--overwrite]
 ```
 
-- 前処理と推定は、同じファイル・同じ値に同じ名前を使う（CLI と設定キーの違いは `--` の有無と `-` / `_` だけ）。前処理が書く `--images-dir`・`--init-toml`・`--points-2d` を、推定が同じ名前で読む
+- 書き出し・前処理・推定は、同じファイル・同じ値に同じ名前を使う（CLI と設定キーの違いは `--` の有無と `-` / `_` だけ）。書き出しが書く `--photo-info` を前処理が同じ名前で読み、前処理が書く `--images-dir`・`--init-toml`・`--points-2d` を、推定が同じ名前で読む
+- 写真情報ファイル（feat-044）: フラットな `key: value` 形式（UTF-8）で、項目は `focal_length_35mm`（35mm 換算焦点距離〔mm〕。0 より大きい有限の数値、小数可）の 1 つだけ。`#` で始まる行はコメント。未知のキーがあると前処理が終了コード 1。例:
+
+  ```yaml
+  # 写真情報ファイル（extract_photo_info.py が Exif から書き出し。feat-044）
+  focal_length_35mm: 23
+  ```
+
+- Exif の無い画像（Exif を消して共有された画像など）では、書き出しは終了コード 1 になる（手で書くときの書式を表示する）。カメラの仕様などで 35mm 換算焦点距離を調べ、写真情報ファイルを手で書いて前処理に渡す。前処理は Exif の焦点距離を参照しない。向き（Orientation）とデジタルズーム（DigitalZoomRatio）の検査は Exif に値がある場合だけ行う
+- 書き出しは上書きしない（`--overwrite` は無い）。`--photo-info` が既に存在すれば何も書かずに終了コード 1。書き出しの終了コード: 0=成功、1=入力エラー（画像を開けない・Exif に値が無い・出力済み・書き込み失敗）、2=引数エラー
+- 再実行するとき: 写真情報ファイルが既にあれば書き出しを飛ばし、そのファイルをそのまま前処理に使う。作り直す場合は、そのファイルが写真情報ファイルであることを確かめてから手で削除する
 - 前処理後の画像は 1920x1080 のみ対応（4:3 で撮った写真は上下を切り抜いて 16:9 にする）。ファイル名は `{images-dir}/{カメラ名}.png`（`refine_extrinsics.py` が読む既存の名前）。2D 点 CSV は原本の画素座標で用意し、前処理で変換する（画素中心規約）
 - 前処理の `--camera` と推定の `--camera` は、パス区切り（`/`、`\`）や `..` を含まない名前に限る（違反は何も書かずに終了コード 1）
-- 前処理の終了コード: 0=成功、1=入力エラー・Exif 検査不合格・出力済み（`--overwrite` で上書き可）、2=引数エラー
+- 前処理の終了コード: 0=成功、1=入力エラー（写真情報ファイルの誤り、写真情報ファイルが前処理の出力と同じファイルを指す場合を含む）・Exif 検査不合格・出力済み（`--overwrite` で上書き可）、2=引数エラー
 - `estimate_intrinsics_loop.py` の出力（`--out-dir` 配下）: `{カメラ名}_loop.toml`（ループ結果）、`{カメラ名}_final.toml`（最終結果）、`{カメラ名}_loop_report.txt`、`{カメラ名}_refine_report.txt`、評価の 4 ファイル（`{カメラ名}_eval.txt`、`_eval_blend.png`、`_eval_checker.png`、`_eval_flowmag.png`）
 - 収束判定: 反復 i ≥ 1 で内部パラメータの変化量 Δ_intr < 2.0px（上限 8 反復）。未収束の場合も最後の反復の値で `{カメラ名}_loop.toml` を書いて終了コード 3
 - 推定の終了コード: 0=成功（評価まで実行。評価の合否は問わない）、1=入力エラー・環境異常・出力済み、2=引数エラー、3=ループ失敗・未収束・範囲外、4=最終精緻化で不受理
-- 推定に `--overwrite` は無い。`--out-dir` と、指定した場合の `--tmp-dir` は**存在しない新しいパス**を指定する（処理開始前に新しく作る。既に存在すれば空でも終了コード 1）。再実行は新しいパスを指定するか、前回のディレクトリを手で削除する。前処理の出力を `--out-dir`・`--tmp-dir` の配下に置かない（前処理がディレクトリを作るため推定が終了コード 1 になる）。同じ出力先での同時実行はしない（bug-006 で、途中で書く一時ファイル・中間ファイルが入力を上書きしないよう修正）
+- 推定に `--overwrite` は無い。`--out-dir` と、指定した場合の `--tmp-dir` は**存在しない新しいパス**を指定する（処理開始前に新しく作る。既に存在すれば空でも終了コード 1）。再実行は新しいパスを指定するか、前回のディレクトリを手で削除する。前処理の出力と写真情報ファイル（`--photo-info`）を `--out-dir`・`--tmp-dir` の配下に置かない（書き出し・前処理がディレクトリを作るため推定が終了コード 1 になる）。同じ出力先での同時実行はしない（bug-006 で、途中で書く一時ファイル・中間ファイルが入力を上書きしないよう修正）
 - 評価の合否: 集計対象画素の割合 ≥ 0.10 かつ写真→レンダのずれ（DIS）の中央値 ≤ 1.0px で「合格」。p95 は記録のみ（3DGS の局所的な再現誤差に左右されるため）。`_eval.txt` には丸めない値 `valid_ratio_raw`・`median_raw` も出る
 - 事前準備: `uv sync --project matcher_lab`、MASt3R（`~/git/mast3r`、`~/data/models/mast3r/`）と LoFTR 重み（`refine_extrinsics.py` と共通）
 - 処理時間の目安: 前処理は数秒、推定は約 2.5 分（10F の実データ、RTX 5060 Ti。うち `refine_extrinsics.py` が約 2 分）
-- 設定YAML（`--config`。前処理は feat-043、推定は feat-042）: `prepare_phone_photo.py` と `estimate_intrinsics_loop.py` が対応（`evaluate_overlay.py` は非対応）。フラット `key: value` 形式（UTF-8。キーはオプション名の `--` を除き `-` を `_` にしたもの）。優先順位は CLI > 設定YAML > 既定値で、必須項目は CLI か設定YAMLのどちらかにあればよい。相対パスは実行したカレントディレクトリが基準。**1 つの設定YAMLを両方に渡せる**: 相手のツールのキーは黙って無視し（値の検査もしない）、どちらにも無いキーと型の誤りは終了コード 2
-  - 前処理のキー: `image` `camera` `images_dir` `init_toml` `points_2d_original` `points_2d`（以上必須）、`expect_model`、`expect_focal_mm`（数値）、`overwrite`（小文字 `true` / `false`。CLI からは true 方向にだけ上書き可）
-  - 推定のキー: `init_toml` `camera` `ply` `images_dir` `points_3d` `points_2d` `out_dir`（以上必須）、`tmp_dir`。`out_dir`・`tmp_dir` は CLI と同じく存在しない新しいパスを書く
-  - 両ツールともオプションの省略形を受け付けない（`--conf`、`--init` なども終了コード 2）。相手のツールのオプション（例: 推定に `--image`）を CLI で渡すと終了コード 2
+- 設定YAML（`--config`。書き出しは feat-044、前処理は feat-043、推定は feat-042）: `extract_photo_info.py`・`prepare_phone_photo.py`・`estimate_intrinsics_loop.py` が対応（`evaluate_overlay.py` は非対応）。フラット `key: value` 形式（UTF-8。キーはオプション名の `--` を除き `-` を `_` にしたもの）。優先順位は CLI > 設定YAML > 既定値で、必須項目は CLI か設定YAMLのどちらかにあればよい。相対パスは実行したカレントディレクトリが基準。**1 つの設定YAMLを 3 ツールに渡せる**: 他のツールのキーは黙って無視し（値の検査もしない）、どのツールにも無いキーと型の誤りは終了コード 2
+  - 書き出しのキー: `image` `photo_info`（以上必須）。`photo_info` は存在しない新しいパスを書く
+  - 前処理のキー: `image` `photo_info` `camera` `images_dir` `init_toml` `points_2d_original` `points_2d`（以上必須）、`overwrite`（小文字 `true` / `false`。CLI からは true 方向にだけ上書き可。前処理だけのキーで、書き出しには効かない）
+  - 推定のキー: `init_toml` `camera` `ply` `images_dir` `points_3d` `points_2d` `out_dir`（以上必須）、`tmp_dir`。`out_dir`・`tmp_dir` は CLI と同じく存在しない新しいパスを書く。推定は `image` `photo_info` `points_2d_original` `overwrite` を無視する
+  - 3 ツールともオプションの省略形を受け付けない（`--conf`、`--init` なども終了コード 2）。相手のツールのオプション（例: 推定に `--image`）を CLI で渡すと終了コード 2
+- 削除したオプション（feat-044）: 前処理の `--expect-model`・`--expect-focal-mm`（キー `expect_model`・`expect_focal_mm`）。設定YAMLに残っていると 3 ツールとも終了コード 2
 - 名前の変更（feat-043。旧名は使えない）: 前処理 `--out-toml` → `--init-toml`、`--points-2d-out` → `--points-2d`、`--points-2d-in` → `--points-2d-original`。推定 `--toml`（キー `toml`）→ `--init-toml`（キー `init_toml`）
 
-共用設定YAMLの例（前処理と推定の両方に `--config` で渡す。プロジェクトルートで実行）:
+共用設定YAMLの例（書き出し・前処理・推定に `--config` で渡す。プロジェクトルートで実行）:
 
 ```yaml
 camera: s25_20261124_152436
-# 前処理が読む
+# 書き出しと前処理が読む
 image: phase4/data/10F/s25_original/20261124_152436.jpg
+# 書き出しが書き、前処理が読む
+photo_info: phase4/data/10F/job_s25_photo_info.yaml
+# 前処理が読む
 points_2d_original: phase0/data/points_2d_10F.csv
-expect_model: Galaxy S25
-expect_focal_mm: 5.4
 # 前処理が書き、推定が読む
 images_dir: phase4/data/10F/job_s25_images
 init_toml: phase4/data/10F/job_s25_init.toml

@@ -19,13 +19,13 @@ import refine_extrinsics as rex  # noqa: E402
 from refine_extrinsics import parse_args_with_config  # noqa: E402
 from test_feat042_config_yaml import _loop_setup  # noqa: E402
 
-PREP_REQ = {"image": "o.jpg", "camera": "camA", "images_dir": "imgs", "init_toml": "i.toml",
+PREP_REQ = {"image": "o.jpg", "photo_info": "pi.yaml", "camera": "camA", "images_dir": "imgs", "init_toml": "i.toml",
             "points_2d_original": "in.csv", "points_2d": "out.csv"}
 ALL_KEYS = {
-    **PREP_REQ, "expect_model": "Galaxy S25", "expect_focal_mm": "5.4", "overwrite": "true",
+    **PREP_REQ, "overwrite": "true",
     "points_3d": "p3.csv", "ply": "s.ply", "out_dir": "outd", "tmp_dir": "tmpd",
 }
-PREP_ONLY = {"image", "points_2d_original", "expect_model", "expect_focal_mm", "overwrite"}
+PREP_ONLY = {"image", "photo_info", "points_2d_original", "overwrite"}
 EST_ONLY = {"points_3d", "ply", "out_dir", "tmp_dir"}
 
 
@@ -63,11 +63,11 @@ def _make_prep_inputs(tmp_path):
 
 
 def test_1_prep_all_keys(tmp_path):
-    d = {**PREP_REQ, "expect_model": "Galaxy S25", "expect_focal_mm": "5.4", "overwrite": "true"}
+    d = {**PREP_REQ, "overwrite": "true"}
     a = _parse(ppp, ["--config", _yaml(tmp_path / "c.yaml", d)])
     for k, v in PREP_REQ.items():
         assert getattr(a, k) == v
-    assert a.expect_model == "Galaxy S25" and a.expect_focal_mm == 5.4 and a.overwrite is True
+    assert a.overwrite is True
 
 
 def test_2_prep_priority(tmp_path):
@@ -100,12 +100,12 @@ def test_4_shared_yaml_both(tmp_path):
 
 
 def test_5_other_keys_not_checked(tmp_path, capsys):
-    conf = _yaml(tmp_path / "j.yaml", {**ALL_KEYS, "expect_focal_mm": "abc"})
+    conf = _yaml(tmp_path / "j.yaml", {**ALL_KEYS, "overwrite": "abc"})
     _parse(eil, ["--config", conf])   # (a) エラーにならない
     with pytest.raises(SystemExit) as ei:   # (b)
         _parse(ppp, ["--config", conf])
     assert ei.value.code == 2
-    assert "expect_focal_mm" in capsys.readouterr().err
+    assert "overwrite" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("mod", [ppp, eil])
@@ -207,12 +207,18 @@ def test_10_camera_name(bad, monkeypatch, tmp_path):
         assert not p.exists()
 
 
+def _photo_info(tmp_path) -> str:
+    p = tmp_path / "photo_info.yaml"
+    p.write_text("focal_length_35mm: 24\n", encoding="utf-8")
+    return str(p)
+
+
 def _shared_job(tmp_path, src, csv_in):
     return _yaml(tmp_path / "job.yaml", {
         **ALL_KEYS, "image": src, "points_2d_original": csv_in,
         "images_dir": tmp_path / "imgs", "init_toml": tmp_path / "i.toml",
         "points_2d": tmp_path / "out.csv", "out_dir": tmp_path / "outd",
-        "tmp_dir": tmp_path / "tmpd", "expect_focal_mm": "5.4"})
+        "tmp_dir": tmp_path / "tmpd", "photo_info": _photo_info(tmp_path)})
 
 
 def test_11_12_prep_run_then_estimate_parse(monkeypatch, tmp_path):
@@ -269,14 +275,15 @@ def test_16_estimate_main_ignores_other_keys(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("empty", ["images_dir", "init_toml", "points_2d"])
-def test_17_empty_output_path(empty, monkeypatch, tmp_path):
+def test_17_empty_output_path(empty, monkeypatch, tmp_path, capsys):
     _mock_exif(monkeypatch)
     monkeypatch.chdir(tmp_path)
     src, csv_in = _make_prep_inputs(tmp_path)
     work = tmp_path / "work"
     work.mkdir()
     monkeypatch.chdir(work)
-    d = {"image": src, "camera": "camA", "points_2d_original": csv_in,
+    d = {"image": src, "photo_info": _photo_info(tmp_path), "camera": "camA",
+         "points_2d_original": csv_in,
          "images_dir": tmp_path / "imgs", "init_toml": tmp_path / "i.toml",
          "points_2d": tmp_path / "out.csv", "overwrite": "true"}
     d[empty] = ""
@@ -286,6 +293,21 @@ def test_17_empty_output_path(empty, monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as ei:
         ppp.main(["--config", str(conf)])
     assert ei.value.code == 2
+    err = capsys.readouterr().err
+    assert "空の値は指定できません" in err
+    assert "--" + empty.replace("_", "-") in err
     assert list(work.iterdir()) == []
     for name in ("imgs", "i.toml", "out.csv"):
         assert not (tmp_path / name).exists()
+
+
+@pytest.mark.parametrize("key,value", [("expect_model", "Galaxy S25"), ("expect_focal_mm", "5.4")])
+def test_19_removed_keys_rejected(key, value, tmp_path, capsys):
+    """feat-044 FR-003: 削除したキーは 3 ツールとも未知のキー（終了コード 2）"""
+    import extract_photo_info as epi
+    conf = _yaml(tmp_path / "j.yaml", {**ALL_KEYS, key: value})
+    for mod in (epi, ppp, eil):
+        with pytest.raises(SystemExit) as ei:
+            _parse(mod, ["--config", conf])
+        assert ei.value.code == 2
+        assert key in capsys.readouterr().err

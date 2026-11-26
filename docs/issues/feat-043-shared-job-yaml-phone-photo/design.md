@@ -76,6 +76,8 @@ parser.set_defaults(**defaults)
 
 ### 4.2 前処理 `prepare_phone_photo.py`（FR-001・002・004）
 
+> **注記（feat-044、2026-11-26）**: 本節の `--expect-model`・`--expect-focal-mm` とその変換表のキーは feat-044 で削除され、`--photo-info`（キー `photo_info`、必須）が追加された。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
+
 #### パーサー（`build_arg_parser`）
 
 | CLI | dest | 変更 | help |
@@ -136,6 +138,8 @@ def main(argv=None) -> int:
 モジュール docstring の使用例を新しいオプション名に書き換え、`--config job.yaml` の 1 行例を追記する。
 
 ### 4.3 推定 `estimate_intrinsics_loop.py`（FR-001・003・005）
+
+> **注記（feat-044、2026-11-26）**: 推定の `IGNORED_KEYS` は feat-044 で `{"image", "photo_info", "points_2d_original", "overwrite"}` に変わった（`expect_model`・`expect_focal_mm` は削除され、未知のキーとして終了コード 2）。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
 
 | 変更 | 内容 |
 |---|---|

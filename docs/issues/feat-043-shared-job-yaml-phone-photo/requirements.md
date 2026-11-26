@@ -28,6 +28,8 @@
 
 ### FR-001: 名前の統一
 
+> **注記（feat-044、2026-11-26）**: 下の表の `--expect-model`・`--expect-focal-mm`（`expect_model`・`expect_focal_mm`）は feat-044 で削除された（3 ツールとも未知のキーとして終了コード 2）。前処理には `--photo-info`（キー `photo_info`）が必須で加わり、書き出しツール `extract_photo_info.py` が同じ YAML を共用する。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
+
 - **機能名**: CLI オプション名・設定キーの統一
 - **概要**: 同じファイル・同じ値には、CLI と設定YAML、前処理と推定の両方で同じ名前を付ける。CLI オプション名と設定キーの違いは、先頭の `--` の有無と `-` / `_` の違いだけとする
 - **詳細**: 両ツールの CLI オプションと設定キーを次の表のとおりとする（`--config` 自体は設定キーにならない）
@@ -141,6 +143,8 @@
 uv run --project phase4 python phase4/prepare_phone_photo.py --config job_s25.yaml
 TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_intrinsics_loop.py --config job_s25.yaml
 ```
+
+注記（feat-044、2026-11-26）: 現行版では `expect_model`・`expect_focal_mm` は削除され、前処理には `photo_info`（写真情報ファイル）が必須になった。この例のままでは終了コード 2 になる。現行の例は README の `estimate_intrinsics_loop.py ほか` の節を参照
 
 共用 YAML の例（`job_s25.yaml`）:
 

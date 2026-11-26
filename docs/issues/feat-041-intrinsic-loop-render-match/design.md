@@ -140,6 +140,8 @@ phase4/data/10F/
 
 #### 4.1.1 CLI
 
+> **注記（feat-044、2026-11-26）**: `--expect-model`・`--expect-focal-mm` は feat-044 で削除され（指定すると終了コード 2）、写真情報ファイルを指定する必須の `--photo-info` が追加された。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
+
 > **注記（feat-043、2026-11-26）**: 本節のオプション名は feat-043 で変更された。`--out-toml` → `--init-toml`、`--points-2d-out` → `--points-2d`、`--points-2d-in` → `--points-2d-original`（旧名は使えない）。`--config` が追加され、オプションの省略形は受け付けなくなった（`allow_abbrev=False`）。`--camera` はパス区切りを含む名前を拒否する。現在の仕様は `docs/issues/feat-043-shared-job-yaml-phone-photo/` を参照。本節は feat-041 時点の記録として残す。
 
 ```
@@ -158,6 +160,8 @@ uv run --project phase4 python phase4/prepare_phone_photo.py \
 - 2D 点 CSV は `refine_extrinsics.load_points_2d_csv` で読む（重複・欠損列・非有限値はその関数の例外 `InputError` で終了コード 1）
 
 #### 4.1.3 処理手順
+
+> **注記（feat-044、2026-11-26）**: feat-044 で検査項目と初期焦点距離の入力元が変わった。35mm 換算焦点距離は Exif ではなく写真情報ファイル（`--photo-info`）から読み、Exif の `FocalLengthIn35mmFilm`・`Model`・`FocalLength` は参照しない。`Orientation`・`DigitalZoomRatio` の検査は Exif に値がある場合だけ行う。写真情報ファイルが前処理の出力と同じファイルを指す場合は処理開始前に終了コード 1。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
 
 1. `--images-dir/{camera}.png`、`--out-toml`、`--points-2d-out` のいずれかが存在し `--overwrite` が無ければ、エラー（終了コード 1）
 2. Exif を読み、`validate_exif` で検査する。エラーが1件以上あれば全件を表示して終了コード 1。検査項目（すべて独立に評価して列挙する）:
@@ -604,6 +608,8 @@ i=2 | LoFTR マッチ5321 N=4410 inl=3102 RMSE=0.912px | f=1283.41 cx=957.88 cy=
 テスト結果は `tests/results/feat-041_test_result.txt` に `uv run pytest -v` の出力をそのまま保存する。
 
 ## 9. 実データでの動作確認
+
+> **注記（feat-044、2026-11-26）**: 本節のコマンド例の `--expect-model` / `--expect-focal-mm` は feat-044 で削除された（指定すると終了コード 2）。前処理には `--photo-info`（写真情報ファイル）が必須になった。現在の仕様は `docs/issues/feat-044-remove-expect-exif-options/` と README を参照。本節は当時の記録として残す。
 
 実装担当（CLAUDE.md ステップ6 の Sonnet サブエージェント）が実行する（requirements.md §7）。手順 6 の 1 回の実行を、イテレーション2 の正式な判定の結果とする（`experiments/e3_10F_it2/criteria.md` §2）。これはステップ6 の実データ検証である。ユーザーはステップ7（手動テスト）でその出力を確認する（確認項目と完了条件は investigation.md イテレーション2 §2.5）。
 

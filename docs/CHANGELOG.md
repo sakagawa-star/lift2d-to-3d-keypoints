@@ -4,6 +4,14 @@
 
 ### 2026-11-26
 
+- **feat-044**: 前処理の Exif 依存の整理（写真情報ファイルの分離、`--expect-model` / `--expect-focal-mm` の削除）
+  - 新スクリプト `phase4/extract_photo_info.py`: 原本の Exif の 35mm 換算焦点距離（`FocalLengthIn35mmFilm`）を写真情報ファイル（フラット `key: value`、項目は `focal_length_35mm` の 1 つ）に書き出す。上書きしない（`--overwrite` は無く、出力先が既に存在すれば終了コード 1。案内は「別の出力パスを指定してください」で削除は勧めない）。一時ファイルに全体を書いてから `os.link` で公開し、不完全なファイルを残さない。Exif に値が無ければ手で書くときの書式を表示して終了コード 1。`--config` で前処理・推定と 1 つの YAML を共用できる
+  - `prepare_phone_photo.py`: 必須の `--photo-info`（キー `photo_info`）を追加し、初期焦点距離の 35mm 換算焦点距離を写真情報ファイルから読む（Exif の焦点距離タグは参照しない）。Exif の無い画像でも写真情報ファイルを手で書けば使える。写真情報ファイルは未知のキーを拒否し、値は 0 より大きい有限の数値（小数可）。写真情報ファイルが前処理の出力・その一時ファイルと同じファイルを指す場合は処理開始前に終了コード 1。`Orientation`・`DigitalZoomRatio` の検査は Exif に値がある場合だけ行う
+  - 削除: `--expect-model`・`--expect-focal-mm`（キー `expect_model`・`expect_focal_mm`）と `Model`・`FocalLength` の検査。設定YAMLに残っていると 3 ツールとも終了コード 2。理由はユーザー判断「設定YAMLは人が手で書く。Exif の値を見て書き写す項目は間違うので作らない」。Exif の値を YAML ではなく別ファイルに分けたのは「Exif が無い画像でもツールを使えるように」（ユーザー判断）
+  - `estimate_intrinsics_loop.py`: 共用 YAML で無視するキーを `image` `photo_info` `points_2d_original` `overwrite` に更新
+  - テスト: `tests/test_feat044_photo_info.py` 新規 18 件、feat-041 テスト 4・7d の変更とテスト 29 の追加、feat-043 テストの変更とテスト 19 の追加、全体 776 passed / 1 skipped（`tests/results/feat-044_test_result.txt`）。実データ確認（GPU なし）で前処理の出力 3 ファイルが feat-043 とバイト一致、Exif を除いた JPEG と手書きの写真情報ファイルで前処理が完走（`docs/issues/feat-044-remove-expect-exif-options/verification.md`）。Codex レビュー codex-01〜10（初版 01〜04、書き直し版 05〜10。書き出しの `--overwrite` は同じ指摘が続いたためユーザー判断で削除）。実装は Sonnet サブエージェント委任。手動テスト合格（2026-11-26、共用 YAML 1 つで書き出し→前処理→推定を完走し median 0.671px・合格、loop.toml・final.toml が feat-043 とバイト一致）
+  - 文書: README の `estimate_intrinsics_loop.py ほか` の節とスクリプト一覧、CLAUDE.md のディレクトリ構成を更新。feat-041 / feat-042 / feat-043 の文書に feat-044 の注記を追加
+
 - **bug-007**: estimate_intrinsics_loop.py の最終精緻化で相対パスの基準がずれる不具合の修正
   - 原因: 最終精緻化の `refine_extrinsics.py` を `subprocess.run(..., cwd=str(ROOT))`（プロジェクトルート）で起動し、利用者の相対パス（と相対の `--out-dir` / `--tmp-dir` から作ったパス）をそのまま渡していた。プロジェクトルート以外から相対パスで実行すると、ループは収束するが最終精緻化が「入力TOMLを読み込めません」で終了コード 1 になっていた（`phase4/` から実行して再現を確認）。入力がプロジェクトルート側にもたまたま存在すると、`--overwrite` 付きで `--out-dir` の外に書き込む危険もあった
   - 修正: `cwd` の指定を外し、子プロセスが親のカレントディレクトリを継承するようにした（1 行）。`refine_extrinsics.py` はカレントディレクトリに依存しない（自分の位置から `ROOT` を求める）ため変更なし。絶対パス化する案は、変更箇所が広くシンボリックリンクを含むパスで親の解釈とずれうるため採らなかった

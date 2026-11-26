@@ -66,21 +66,18 @@ def test_3_convert_point_roundtrip():
 def test_4_validate_exif():
     ok = {"Model": "Galaxy S25", "Orientation": 1, "FocalLength": 5.4,
           "FocalLengthIn35mmFilm": 24, "DigitalZoomRatio": 1.0}
-    assert ppp.validate_exif(ok, 4000, 3000, "Galaxy S25", 5.4) == []
-    assert ppp.validate_exif({**ok, "Orientation": None}, 4000, 3000, None, None) == []
-    assert ppp.validate_exif({**ok, "DigitalZoomRatio": None}, 4000, 3000, None, None) == []
+    assert ppp.validate_exif(ok, 4000, 3000) == []
+    assert ppp.validate_exif({**ok, "Orientation": None}, 4000, 3000) == []
+    assert ppp.validate_exif({**ok, "DigitalZoomRatio": None}, 4000, 3000) == []
+    # 前処理は Exif の 35mm 換算焦点距離を検査しない（feat-044）
+    assert ppp.validate_exif({**ok, "FocalLengthIn35mmFilm": None}, 4000, 3000) == []
     cases = [
-        ({**ok, "Orientation": 6}, 4000, 3000, None, None),
-        (ok, 3000, 4000, None, None),
-        ({**ok, "FocalLengthIn35mmFilm": None}, 4000, 3000, None, None),
-        ({**ok, "FocalLengthIn35mmFilm": 0}, 4000, 3000, None, None),
-        ({**ok, "DigitalZoomRatio": 2.0}, 4000, 3000, None, None),
-        (ok, 4000, 3000, "Pixel 9", None),
-        (ok, 4000, 3000, None, 6.0),
-        ({**ok, "FocalLength": None}, 4000, 3000, None, 5.4),
+        ({**ok, "Orientation": 6}, 4000, 3000),
+        (ok, 3000, 4000),
+        ({**ok, "DigitalZoomRatio": 2.0}, 4000, 3000),
     ]
-    for exif, w, h, m, fm in cases:
-        assert len(ppp.validate_exif(exif, w, h, m, fm)) == 1, (exif, w, h, m, fm)
+    for exif, w, h in cases:
+        assert len(ppp.validate_exif(exif, w, h)) == 1, (exif, w, h)
 
 
 # ------------------------------------------------------------
@@ -270,10 +267,12 @@ def test_7d_prepare_png(monkeypatch, tmp_path):
     images_dir = tmp_path / "images"
     out_toml = tmp_path / "init.toml"
     csv_out = tmp_path / "p_out.csv"
-    code = ppp.main(["--image", str(src), "--camera", "camA", "--images-dir", str(images_dir),
+    photo_info = tmp_path / "photo_info.yaml"
+    photo_info.write_text("focal_length_35mm: 24\n", encoding="utf-8")
+    code = ppp.main(["--image", str(src), "--photo-info", str(photo_info),
+                     "--camera", "camA", "--images-dir", str(images_dir),
                      "--init-toml", str(out_toml), "--points-2d-original", str(csv_in),
-                     "--points-2d", str(csv_out), "--expect-model", "Galaxy S25",
-                     "--expect-focal-mm", "5.4"])
+                     "--points-2d", str(csv_out)])
     assert code == 0
     out = cv2.imread(str(images_dir / "camA.png"))
     assert out is not None and out.shape[:2] == (1080, 1920)
@@ -286,7 +285,8 @@ def test_7d_prepare_png(monkeypatch, tmp_path):
     cam = select_camera(load_cameras_toml(str(out_toml)), "camA")
     assert abs(cam["K"][0, 0] - 24 * 80 / 43.27 * 30) < 1e-6
     # 出力済みなら --overwrite なしで拒否
-    code2 = ppp.main(["--image", str(src), "--camera", "camA", "--images-dir", str(images_dir),
+    code2 = ppp.main(["--image", str(src), "--photo-info", str(photo_info),
+                      "--camera", "camA", "--images-dir", str(images_dir),
                       "--init-toml", str(out_toml), "--points-2d-original", str(csv_in),
                       "--points-2d", str(csv_out)])
     assert code2 == 1
@@ -751,3 +751,18 @@ def test_21_format_eval_txt():
     assert float(raw["median_raw"]) == stats["median"]
     assert float(raw["valid_ratio_raw"]) == stats["valid_ratio"]
     assert "合格ライン: median <= 1.000 px（valid_ratio >= 0.100）。p95 は記録のみ" in lines
+
+
+def test_29_expect_options_removed(capsys):
+    """feat-044 FR-003: --expect-model / --expect-focal-mm の削除"""
+    h = ppp.build_arg_parser().format_help()
+    assert "--expect-model" not in h and "--expect-focal-mm" not in h
+    assert "--photo-info" in h
+    base = ["--image", "o.jpg", "--photo-info", "pi.yaml", "--camera", "camA",
+            "--images-dir", "imgs", "--init-toml", "i.toml",
+            "--points-2d-original", "in.csv", "--points-2d", "out.csv"]
+    for extra in (["--expect-model", "x"], ["--expect-focal-mm", "5.4"]):
+        with pytest.raises(SystemExit) as ei:
+            ppp.main(base + extra)
+        assert ei.value.code == 2
+        capsys.readouterr()

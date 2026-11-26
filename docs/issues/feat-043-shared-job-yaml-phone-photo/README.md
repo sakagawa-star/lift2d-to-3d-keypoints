@@ -53,6 +53,8 @@ Closed（2026-11-25 起票、2026-11-26 完了。Codex レビュー codex-01〜1
 
 既存の約束事として残すもの: 前処理後画像のファイル名は `{images_dir}/{camera}.png`。`refine_extrinsics.py`（feat-026）がこの名前で読む既存の仕様で、本案件で新たに決めるものではない（ユーザーに説明済み）。
 
+注記（feat-044、2026-11-26）: 現行版では `expect_model`・`expect_focal_mm` は削除され、前処理には `photo_info`（写真情報ファイル）が必須になった。この例のままでは終了コード 2 になる。現行の例は README の `estimate_intrinsics_loop.py ほか` の節を参照
+
 共用 YAML の例:
 
 ```yaml

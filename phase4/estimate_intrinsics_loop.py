@@ -419,7 +419,7 @@ REQUIRED_OPTIONS = [("init_toml", "--init-toml"), ("camera", "--camera"), ("ply"
                     ("images_dir", "--images-dir"), ("points_3d", "--points-3d"),
                     ("points_2d", "--points-2d"), ("out_dir", "--out-dir")]
 # 共用 YAML の相手（前処理 prepare_phone_photo.py）のキー（feat-043）
-IGNORED_KEYS = frozenset({"image", "points_2d_original", "expect_model", "expect_focal_mm", "overwrite"})
+IGNORED_KEYS = frozenset({"image", "photo_info", "points_2d_original", "overwrite"})
 
 
 def _out_paths(out_dir: Path, camera: str) -> dict:
