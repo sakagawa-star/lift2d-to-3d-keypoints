@@ -207,6 +207,7 @@ phase0 とは独立した uv 環境（`phase4/pyproject.toml`）。スクリプ�
 | `render_keypoints.py` | キャリブTOMLカメラでの3DGSレンダリング + キーポイント重ね描き（複数人対応） / 静止画モード |
 | `refine_extrinsics.py` | 手動点（一意6点以上）+ LoFTR 自動マッチングによる外部パラメータ精緻化（K既知）。`--config` で設定YAML指定可 |
 | `adjust_extrinsics_multiview.py` | 8台多視点同時外部パラメータ調整（MASt3Rクロス対応点 + 3DGSアンカーのバンドル調整、K既知）。`--config` で設定YAML指定可 |
+| `estimate_wizard.py` | 推定ウィザード（対話式 CLI）。原本を検査し、2D 点を打てる範囲の画像を書き出し、2D・3D 基準点の名前照合と確認画像での確認、入力のコピー、共用設定YAMLの作成をしてから、書き出し → 前処理 → 推定を実行する。作業フォルダは `phase4/data/EIL/{名前}/`（feat-045） |
 | `extract_photo_info.py` | 原本画像の Exif から 35mm 換算焦点距離を読み、写真情報ファイル（`prepare_phone_photo.py` の入力）に書き出す。上書きしない。`--config` で設定YAML指定可（前処理・推定と 1 つの YAML を共用できる。feat-044） |
 | `prepare_phone_photo.py` | スマートフォン静止画の前処理（Exif 検査、16:9 中央切り抜き → 1920x1080、写真情報ファイルから初期 TOML、2D 点の座標変換。feat-041）。`--config` で設定YAML指定可（`estimate_intrinsics_loop.py` と 1 つの YAML を共用できる。feat-043） |
 | `estimate_intrinsics_loop.py` | レンダ＋マッチング反復による内部パラメータ（f・主点・k1・k2）と外部パラメータの同時推定 → `refine_extrinsics.py` で最終精緻化 → 重ね合わせ評価（スマートフォン静止画用。feat-041）。`--config` で設定YAML指定可（`prepare_phone_photo.py` と共用可。feat-043） |
@@ -497,6 +498,26 @@ out_report: phase4/data/<部屋>/adjusted_report.txt
 ### estimate_intrinsics_loop.py ほか（スマートフォン静止画の内部・外部パラメータ推定。feat-041）
 
 3DGS を作った部屋で撮ったスマートフォンの静止画 1 枚（Galaxy S25 で確認）について、チェッカーボードを使わずに内部パラメータ（f（fx=fy）・主点・k1・k2）と外部パラメータ（R, t）を推定する。手順は 4 本のスクリプトで構成する（写真情報の書き出し → 前処理 → 推定。評価は推定の中で自動実行し、単体でも実行できる）。
+
+**推定ウィザード（`estimate_wizard.py`。feat-045）**: 下の 3 ツールの準備と実行を対話でまとめて行う。設定YAMLを書いたり、ファイル名・ディレクトリ名を決めたりしなくてよい。
+
+```bash
+# プロジェクトルートで実行（推定に GPU を使うため環境変数を付ける）
+TORCH_CUDA_ARCH_LIST="9.0+PTX" uv run --project phase4 python phase4/estimate_wizard.py
+```
+
+- 対話の流れ:
+  1. 原本のパスを答える。点を打つ前に、書き出し・前処理と同じ検査（16:9 に切り抜ける大きさ、Exif の向き・デジタルズーム、35mm 換算焦点距離の有無）を行い、不合格なら理由を表示して聞き直す。Exif の無い画像はウィザードでは扱えない（下の手順で写真情報ファイルを手で書いて手動実行する）
+  2. 作業フォルダの名前（英数字・`_`・`-`。例 `20261126-01`）を答える。`phase4/data/EIL/{名前}/` に新しく作られる（既にある名前は聞き直し）
+  3. カメラ名を答える（英数字・`_`・`-`。先頭の `-` と `metadata` は不可。既定は原本のファイル名）
+  4. 範囲画像 `crop_area.png` が書き出される。2D 点を打てる範囲（4000x3000 なら x=1〜3998、y=376〜2623。範囲の外は暗い）を見ながら、GIMP などで原本に 2D 点を打ち、2D 点 CSV（UTF-8、`ObjectName,camera_name,X,Y`、`camera_name` はカメラ名、座標は原本の画素座標）を作る
+  5. 2D 点 CSV と 3D 基準点 CSV のパスを答える。名前の照合（2D にだけある名前、重複、`,` `"` 改行を含む名前は誤り）と、範囲内の点が 6 点以上あるかを検査し、確認画像 `points_check.png`（範囲画像の上に点と番号）を見て y/n で答える。誤りや n のときは 2 つのパスを聞き直す
+  6. 3DGS の PLY ファイルのパスを答える。入力が作業フォルダにコピーされ、共用設定YAML `job.yaml` が書かれる
+  7. 「実行しますか」に y で、書き出し → 前処理 → 推定 が順に実行される（n なら手で実行するコマンドを表示して終了）
+- 作業フォルダの構成（名前はウィザードが決め、すべて `job.yaml` に絶対パスで書く）: `original.jpg`（原本のコピー。拡張子は原本のまま）、`crop_area.png`、`points_check.png`、`points_2d_original.csv`、`points_3d.csv`、`point_cloud.ply`（PLY のコピー。約 100MB）、`job.yaml`、`photo_info.yaml`（書き出し）、`images/`・`init.toml`・`points_2d.csv`（前処理）、`out/`（推定）
+- ツールが失敗したとき・実行中に中断したときは、そこで止まり、続きを手で実行するコマンドを表示する（前処理には `--overwrite`、推定には新しい出力先 `out_2` などを `--out-dir` で付ける）。ウィザード自体は途中から再開しない
+- 終了コード: 0=成功（または実行しないを選んだ）、1=ツールの失敗・ファイル操作の失敗・中断、2=引数エラー
+- 前提: `phase4/data` と `phase4/data/EIL` は通常のディレクトリ（シンボリックリンクは対象外）
 
 ```bash
 # 0. 写真情報の書き出し（原本の Exif の 35mm 換算焦点距離を写真情報ファイルに書く。feat-044。

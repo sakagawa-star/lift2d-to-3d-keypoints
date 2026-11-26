@@ -57,6 +57,7 @@
 | feat-042 | 機能追加 | 精緻化ツール 3 本（refine_extrinsics.py / adjust_extrinsics_multiview.py / estimate_intrinsics_loop.py）の設定 YAML（--config）対応 | Closed |
 | bug-007 | 不具合 | estimate_intrinsics_loop.py の最終精緻化（cwd=ROOT の subprocess）で相対パスの基準がずれる | Closed |
 | feat-044 | 機能追加 | 前処理の Exif 依存の整理（35mm 換算焦点距離を写真情報ファイルに分離し extract_photo_info.py で Exif から書き出す、--expect-model / --expect-focal-mm を削除） | Closed |
+| feat-045 | 機能追加 | スマートフォン静止画のカメラパラメータ推定ウィザード（CLI。2D 点を打てる範囲の画像の書き出し、2D・3D 基準点の名前照合とプロット確認、入力のコピー、共用 YAML の作成、書き出し→前処理→推定の実行） | Closed |
 | feat-043 | 機能追加 | スマートフォン静止画の前処理（prepare_phone_photo.py）と推定（estimate_intrinsics_loop.py）で 1 つの設定 YAML を共用（CLI・YAML・ツール間で名前を統一） | Closed |
 
 ## ステータス凡例
